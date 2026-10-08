@@ -1,4 +1,4 @@
-# Infrastructure: networking, security groups, and SSH access
+# Infrastructure: networking and shared application host
 
 This configuration defines the shared VPC, four subnets, an internet gateway,
 route tables, four security groups, and an EC2 Instance Connect Endpoint for
@@ -6,7 +6,8 @@ SSH. The user applied the network foundation; read-only AWS checks verified
 the resources and routing afterward. The reviewed security groups and SSH
 endpoint have also been applied and verified in AWS. The NAT gateway, its
 Elastic IP, and private-A default route have also been applied and verified.
-EC2, RDS, and ALB remain for subsequent reviewed steps.
+The SSH-only EC2 host is configured and planned, but has not been
+applied. RDS and ALB remain for subsequent reviewed steps.
 
 ## Files
 
@@ -21,6 +22,8 @@ EC2, RDS, and ALB remain for subsequent reviewed steps.
 | `nat.tf` | Define one Elastic IP and one public zonal NAT gateway in public subnet A. |
 | `security_groups.tf` | Define four security groups and explicit inbound/outbound rules. |
 | `ssh_access.tf` | Define the SSH endpoint in private subnet A. |
+| `ec2.tf` | Verify the pinned AMI and define the shared private application host. |
+| `scripts/bootstrap_ec2.sh` | First-boot installation of Docker and deployment tools, service startup, and local log rotation. |
 | `variables.tf` | Define configurable region, account, names, CIDRs, Availability Zones, and staging/production host ports. |
 | `outputs.tf` | Expose network IDs, security group IDs, SSH endpoint ID, NAT gateway ID, and NAT public IP after an apply. |
 | `.terraform.lock.hcl` | Generated during initialization; records the selected provider version and checksums. Commit this file. |
@@ -29,8 +32,8 @@ All top-level `.tf` files in `8Byte-Infra/` form one Terraform root module.
 File names organize the code for readers; resource references determine
 dependencies. Moving the provider block between files in the same directory
 does not change resource addresses or AWS settings. Keep this single root
-module for the shared infrastructure. Add `ec2.tf`,
-`rds.tf`, and `alb.tf` as their implementation steps are approved; reusable
+module for the shared infrastructure. Add
+`rds.tf` and `alb.tf` as their implementation steps are approved; reusable
 child modules are optional later.
 
 ## Subnet layout
@@ -167,15 +170,90 @@ Regular EC2 and other infrastructure costs remain separate.
 Creation requires the relevant EC2 permissions and permission to create the
 service-linked role if it does not exist. Using the tunnel requires IAM
 permission for `ec2-instance-connect:OpenTunnel`, plus SSH authentication.
-When EC2 is added, choose an AMI with EC2 Instance Connect for temporary SSH
-keys or configure an SSH public key. Temporary-key use also needs
-`ec2-instance-connect:SendSSHPublicKey`. No IAM policy or key has been added
-in this step; SSH connectivity can be tested only after EC2 exists.
+The planned AL2023 standard AMI includes EC2 Instance Connect for temporary SSH
+keys. Temporary-key use also needs `ec2-instance-connect:SendSSHPublicKey`.
+No persistent SSH key is stored in Terraform. Opening tunnels and sending
+temporary keys require caller
+permissions. SSH connectivity can be tested only after EC2 exists.
 
 Official references:
 
 - [Endpoint operation and pricing](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-ec2-instance-connect-endpoint.html)
 - [Endpoint security-group rules](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/eice-security-groups.html)
+
+## Shared EC2 host — configured, not applied
+
+| Setting | Configuration |
+| --- | --- |
+| Instance | `t3.medium`, 2 vCPUs and 4 GiB RAM, configurable through `ec2_instance_type`. |
+| OS | Amazon Linux 2023 standard x86_64, pinned AMI `ami-0d27e0fb3bac4d724` in `us-east-1`. |
+| Network | Private subnet A, existing EC2 security group, no public IP. |
+| Disk | 30 GiB encrypted gp3, configurable through `ec2_root_volume_gb`. |
+| Metadata | IMDSv2 required; hop limit 1; metadata tags disabled. |
+| CPU credits | Standard mode, configurable through `ec2_cpu_credit_mode`. |
+| Operator access | SSH through the existing endpoint, default OS user `ec2-user`, temporary keys. |
+| Deployment access | SSH through the existing EC2 Instance Connect Endpoint; pipeline integration remains pending. |
+
+The AMI was resolved from AWS's public AL2023 parameter during planning, then
+pinned in `ec2_ami_id`. Terraform verifies Amazon ownership and x86 architecture.
+Updating the AMI is a deliberate reviewed change and can replace the host.
+Override the AMI when changing regions. Deploy images built for `linux/amd64`;
+an ARM-only local image from an Apple Silicon Mac cannot run on this host.
+
+The 4 GiB size is a starting point for two PetClinic environments plus Docker
+and agents. Verify memory and CPU under representative load after deployment.
+Standard mode avoids surplus CPU-credit charges, but sustained CPU use can
+throttle once earned credits are exhausted. Builds belong in CI.
+
+`scripts/bootstrap_ec2.sh` disables the bundled SSM Agent and installs Docker,
+AWS CLI, jq, and EC2 Instance Connect from the OS package repository. It retries
+package installation up to three times, enables Docker/SSH, and configures Docker json-file logs
+with 10 MB files and three files per container. It uses no credentials or DB
+passwords. EC2 creation depends on the NAT route.
+
+Use `sudo docker` over SSH. The default user is not added to the docker group,
+which would grant root-equivalent access. SSH deployment commands using sudo
+have elevated host privileges; environment targeting needs a separate review.
+Metadata hop limit 1 reduces access from bridge containers;
+it is not complete isolation from a malicious or privileged container.
+
+No EC2 IAM role or instance profile is configured in this stage. Registry,
+secret, and monitoring access will need appropriate permissions in their later
+reviewed steps. The pipeline's AWS identity and permissions for the SSH tunnel
+and temporary keys are also pending. A GitHub-hosted runner cannot directly
+SSH to the private IP over the internet; its deployment design must use the
+existing endpoint. This choice does not expose port 22 publicly.
+
+Environment Docker networks, PetClinic containers, database initialization,
+and deployment workflows are application/deployment work. The bootstrap does
+not start PetClinic or create RDS/ALB resources. Docker Compose is not installed
+in this step; the current deployment design uses Docker CLI containers.
+
+The encrypted root disk is deleted when the instance is terminated. Store
+persistent application data in RDS and configure centralized logs in the
+monitoring step. `user_data_replace_on_change = true` means bootstrap changes
+trigger a reviewed instance replacement rather than an assumed script rerun.
+Do not insert secrets into user data or Terraform variables/state.
+
+Estimated incremental cost before taxes and transfer: $0.0418/hour for Linux
+t3.medium, about $3.01 for 72 hours or $30.51 for 730 hours; 30 GiB baseline gp3
+adds about $2.40/month. Budget roughly $3.25 for 72 hours or $32.91/month for
+compute and disk combined. NAT and other services are additional. Stopping
+EC2 does not stop disk or NAT charges.
+
+After apply approval, verify instance status checks and encryption, wait for
+cloud-init completion, inspect `/var/log/cloud-init-output.log`, confirm Docker
+and SSH services, confirm SSM is disabled, test SSH through the endpoint,
+and test an HTTPS download and a container image pull through NAT. Passing a
+Terraform plan alone does not verify the bootstrap or connectivity.
+
+Official references:
+
+- [AL2023 AMI parameters](https://docs.aws.amazon.com/linux/al2023/ug/ec2.html)
+- [SSH access on AL2023](https://docs.aws.amazon.com/linux/al2023/ug/connecting-to-instances.html)
+- [T3 specifications, CPU credits, and pricing](https://aws.amazon.com/ec2/instance-types/t3/)
+- [EBS pricing](https://aws.amazon.com/ebs/pricing/)
+- [30 GiB gp3 cost example in us-east-1](https://aws.amazon.com/blogs/storage/migrate-your-amazon-ebs-volumes-from-gp2-to-gp3-and-save-up-to-20-on-costs/)
 
 ## State and credentials
 
@@ -211,15 +289,16 @@ Validation checks the Terraform configuration without creating resources.
 Review a Terraform plan before approving an apply. No running application,
 SSH connection, or end-to-end connectivity has been verified at this stage.
 
-Generate a fresh plan for the next reviewed change with:
+Generate the shared-host plan with:
 
 ```sh
-terraform -chdir=8Byte-Infra plan -input=false -lock-timeout=30s -out=next.tfplan
+terraform -chdir=8Byte-Infra plan -input=false -lock-timeout=30s -out=ec2.tfplan
 ```
 
 Saved plans are local and excluded from version control by `.gitignore`.
 The saved `network.tfplan`, `security.tfplan`, and `nat.tfplan` have been applied
 and must not be reused.
+`ec2.tfplan` is the reviewed, unapplied plan for the shared-host stage.
 Generate a fresh plan if configuration or state changes. Applying requires
 separate approval.
 
@@ -299,3 +378,13 @@ Official references:
   gateway. A post-apply plan with `-detailed-exitcode` returned exit code 0 and
   reported no changes; the state lock was released. Actual package/image
   downloads have not been tested because EC2 is not provisioned yet.
+- The EC2 stage passed formatting, Terraform validation, and `bash -n` on
+  the bootstrap script. AWS confirmed t3.medium has two vCPUs, 4096 MiB memory,
+  and x86_64 architecture. Terraform verified the selected AMI is Amazon-owned
+  and x86_64. After the user chose SSH-only administration and deployments,
+  the SSM policy, instance role/profile, and their output were removed. The
+  regenerated `ec2.tfplan` succeeded with `1 to add, 0 to change, 0 to destroy`:
+  one instance. The plan confirms private A, no public IP, the existing EC2
+  group, encrypted 30 GiB gp3, IMDSv2, and Standard CPU credits. Terraform
+  released the lock. No apply, bootstrap run, or SSH test
+  or PetClinic deployment has been performed for this stage.

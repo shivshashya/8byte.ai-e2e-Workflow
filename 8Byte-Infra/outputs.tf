@@ -62,3 +62,13 @@ output "nat_public_ip" {
   description = "Public IPv4 address used by outbound connections through the NAT gateway."
   value       = aws_eip.nat.public_ip
 }
+
+output "ec2_instance_id" {
+  description = "Shared application instance ID for SSH access and deployment targeting."
+  value       = aws_instance.application.id
+}
+
+output "ec2_private_ip" {
+  description = "Private IPv4 address of the shared application host."
+  value       = aws_instance.application.private_ip
+}

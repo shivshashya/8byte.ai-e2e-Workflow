@@ -30,3 +30,5 @@ app/target/
 
 # Upstream PetClinic files taken out of app/ (Gradle, Kubernetes, dev containers).
 _removed_from_app/
+
+source_files/

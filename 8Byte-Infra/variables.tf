@@ -88,3 +88,47 @@ variable "application_ports" {
     error_message = "application_ports must contain distinct staging and production TCP ports, each an integer from 1 to 65535."
   }
 }
+
+variable "ec2_instance_type" {
+  description = "x86 T3 instance size for the shared staging and production host."
+  type        = string
+  default     = "t3.medium"
+
+  validation {
+    condition     = startswith(var.ec2_instance_type, "t3.")
+    error_message = "ec2_instance_type must be an x86 T3 instance such as t3.medium; AMI and CPU-credit configuration must be reviewed for another family."
+  }
+}
+
+variable "ec2_ami_id" {
+  description = "Pinned Amazon Linux 2023 standard x86_64 AMI, verified in us-east-1. Override when changing region or deliberately upgrading."
+  type        = string
+  default     = "ami-0d27e0fb3bac4d724"
+
+  validation {
+    condition     = can(regex("^ami-[0-9a-f]{17}$", var.ec2_ami_id))
+    error_message = "ec2_ami_id must be a valid AMI ID."
+  }
+}
+
+variable "ec2_root_volume_gb" {
+  description = "Size in GiB of the encrypted gp3 root disk for Docker images and local logs."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.ec2_root_volume_gb >= 30 && var.ec2_root_volume_gb == floor(var.ec2_root_volume_gb)
+    error_message = "ec2_root_volume_gb must be an integer of at least 30 GiB."
+  }
+}
+
+variable "ec2_cpu_credit_mode" {
+  description = "Standard avoids surplus CPU-credit charges but may throttle; unlimited permits paid sustained bursts."
+  type        = string
+  default     = "standard"
+
+  validation {
+    condition     = contains(["standard", "unlimited"], var.ec2_cpu_credit_mode)
+    error_message = "ec2_cpu_credit_mode must be standard or unlimited."
+  }
+}
