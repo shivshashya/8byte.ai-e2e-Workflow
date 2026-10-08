@@ -102,3 +102,18 @@ output "github_actions_role_arn" {
   description = "Role ARN for GitHub Actions OIDC authentication from this repository's main branch."
   value       = aws_iam_role.github_actions.arn
 }
+
+output "pipeline_failure_topic_arn" {
+  description = "SNS topic ARN for GitHub pipeline failure messages."
+  value       = aws_sns_topic.pipeline_failures.arn
+}
+
+output "github_notifications_role_arn" {
+  description = "Publish-only GitHub OIDC role for main-branch and pull-request failure notifications."
+  value       = aws_iam_role.github_notifications.arn
+}
+
+output "database_secret_arns" {
+  description = "Application database secret ARNs by environment; credential values are not managed or exposed by Terraform."
+  value       = { for environment, secret in aws_secretsmanager_secret.database : environment => secret.arn }
+}

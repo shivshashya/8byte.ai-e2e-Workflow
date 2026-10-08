@@ -25,6 +25,11 @@ RDS and ALB remain for subsequent reviewed steps.
 | `ssh_access.tf` | Define the SSH endpoint in private subnet A. |
 | `ec2.tf` | Verify the pinned AMI and define the shared private application host. |
 | `rds.tf` | Define the private Single-AZ PostgreSQL instance, subnet group and optional-TLS parameter group. |
+| `ecr.tf` | Shared immutable PetClinic image repository, push scanning and image retention. |
+| `iam.tf` | GitHub OIDC deployment/notification roles and EC2 pull-only role/instance profile. |
+| `sns.tf` | Pipeline failure topic and owner-confirmed email subscription. |
+| `secrets.tf` | Application secret containers and scoped EC2 secret-read policy. |
+| `scripts/initialize_databases.sql` | Reviewed PostgreSQL roles, databases and grants; execution pending. |
 | `scripts/bootstrap_ec2.sh` | First-boot installation of Docker and deployment tools, service startup, and local log rotation. |
 | `variables.tf` | Define configurable region, account, names, CIDRs, Availability Zones, and staging/production host ports. |
 | `outputs.tf` | Expose network IDs, security group IDs, SSH endpoint ID, NAT gateway ID, and NAT public IP after an apply. |
@@ -219,9 +224,9 @@ have elevated host privileges; environment targeting needs a separate review.
 Metadata hop limit 1 reduces access from bridge containers;
 it is not complete isolation from a malicious or privileged container.
 
-No EC2 IAM role or instance profile is configured in this stage. Registry,
-secret, and monitoring access will need appropriate permissions in their later
-reviewed steps. The pipeline's AWS identity and permissions for the SSH tunnel
+The pipeline configuration now defines an EC2 IAM role and instance profile
+with ECR pull access; attachment is pending approval of `pipeline.tfplan`.
+Secret and monitoring access require permissions in their later reviewed steps. The pipeline's AWS identity and permissions for the SSH tunnel
 and temporary keys are also pending. A GitHub-hosted runner cannot directly
 SSH to the private IP over the internet; its deployment design must use the
 existing endpoint. This choice does not expose port 22 publicly.
@@ -484,3 +489,259 @@ Configuration checks passed: `terraform fmt -check` and `terraform validate`.
 Saved review plan `rds.tfplan` contains **3 additions, 0 changes, 0 destructions**:
 RDS instance, DB subnet group and DB parameter group. It has not been applied.
 The managed admin secret is created by RDS, not a separate Terraform resource.
+
+## Pipeline infrastructure — configured, not applied
+
+`ecr.tf` creates one private `8byte-petclinic` repository for both environments,
+with immutable tags, AES256 encryption and scan on push. The lifecycle policy
+retains the newest 30 images (`ecr_retained_image_count`) and expires older
+images, including tagged images. ECR does not know which images are deployed;
+ensure a required rollback image remains inside the retention window. Use
+unique build tags and promote the same digest, rather than overwriting staging,
+production or latest tags. Repository deletion requires explicitly emptying it;
+`force_delete` is false. Scan on push does not itself reject vulnerable images;
+the CI scan gate remains application/pipeline work.
+
+AWS IAM currently has no OIDC provider in this account, so `iam.tf` creates
+`https://token.actions.githubusercontent.com`, audience `sts.amazonaws.com`.
+The deployment role trusts only this exact subject:
+
+```
+repo:shivshashya@109200716/8byte.ai-e2e-Workflow@1410967056:ref:refs/heads/main
+```
+
+No GitHub environment subject or wildcard is allowed. Workflow jobs need
+`permissions: id-token: write` and normally `contents: read`. Jobs using GitHub
+environments or pull-request OIDC subjects cannot assume this role. Production
+approval logic remains in the workflow design.
+
+The GitHub role permits ECR login (the API requires Resource `*`), repository-
+scoped push/pull, OpenTunnel only on the existing endpoint with destination
+port 22 and the application's private IP, SendSSHPublicKey only on the
+application instance for `ec2-user`, and the two requested EC2 discovery APIs
+(which require Resource `*`). The private-IP/instance references follow future
+Terraform replacements. No permanent AWS keys are needed in GitHub.
+
+The EC2 role trusts the EC2 service and grants ECR login plus pull-only access
+to this repository. Its instance profile attaches to the existing host in
+place. Host AWS CLI commands can use instance credentials for Docker login.
+The IMDSv2 hop limit remains 1. No SSM permissions or admin secret access are
+added. Read access to the two application DB secrets remains pending their
+creation and review; the shared role will eventually access both environments.
+
+Outputs for pipeline configuration:
+
+| Terraform output | Pipeline use |
+| --- | --- |
+| `ecr_repository_url` | Full registry/repository image path |
+| `github_actions_role_arn` | OIDC role-to-assume |
+| `ec2_instance_id` | SSH public-key target |
+| `ssh_endpoint_id` | EIC tunnel endpoint |
+
+Formatting and validation passed. `pipeline.tfplan` shows **8 additions,
+1 in-place update, 0 destructions**. The additions are ECR repository/lifecycle,
+OIDC provider, GitHub role/policy and EC2 role/policy/profile; the update attaches
+the instance profile. No pipeline infrastructure apply has occurred. Runtime
+OIDC authentication, repository push/pull and deployment-role SSH remain untested.
+After approved apply, verify trust/policies and profile attachment, then test
+host ECR login/pull and main-branch GitHub OIDC push/SSH through the pipeline.
+
+The refreshed plan also found RDS already applied. AWS reports it available,
+PostgreSQL 18.4 on db.t3.small in us-east-1a, private and encrypted, with seven-day
+backups and its parameter group in-sync. No RDS resource changes appear in the
+pipeline plan. Database connection and restricted-user checks remain pending.
+This checkpoint supersedes the earlier README notes that RDS was not applied;
+do not reuse the earlier RDS plan.
+
+ECR storage is approximately $0.10/GB-month (e.g. 5 GB is $0.50/month), with
+additional applicable transfer and existing NAT processing charges. The
+repository's basic scan-on-push setting is used. IAM resources have no separate
+hourly compute cost. RDS/EC2/NAT costs remain separate.
+
+References:
+
+- [ECR pricing](https://aws.amazon.com/ecr/pricing/)
+- [EIC endpoint IAM conditions](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/permissions-for-ec2-instance-connect-endpoint.html)
+- [ECR push permissions](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-push-iam.html)
+- [IAM OIDC provider](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles_providers_create_oidc.html)
+
+## Pipeline failure notifications — configured, not applied
+
+`sns.tf` defines the standard topic `8byte-devops-pipeline-failures` in the
+provider region us-east-1 and an email subscription to shivshashyadev@gmail.com.
+The address is configurable through `pipeline_alert_email`. AWS sends a
+confirmation email on subscription creation; the owner must click its Confirm
+subscription link. Terraform creating the subscription does not prove delivery
+is active. No confirmation email or test alert has been sent in this step.
+
+`iam.tf` defines a second GitHub role `8byte-devops-github-notifications`, using
+the same OIDC provider with audience sts.amazonaws.com. Its exact allowed
+subjects are:
+
+```
+repo:shivshashya@109200716/8byte.ai-e2e-Workflow@1410967056:ref:refs/heads/main
+repo:shivshashya@109200716/8byte.ai-e2e-Workflow@1410967056:pull_request
+```
+
+Its sole permissions policy grants `sns:Publish` on the failure topic ARN only.
+It grants no repository push/pull, SSH or secret access. The main-only deployment
+role's trust remains unchanged. Notification workflow jobs need id-token: write
+and must assume this separate role; workflow integration is handled in the pipeline work.
+
+Outputs: `pipeline_failure_topic_arn` and `github_notifications_role_arn`.
+The workflow should include the repository/run URL and failed job in a plain
+text alert, keeping passwords/tokens out of messages.
+
+Formatting and validation passed. Saved `notifications.tfplan` includes the
+pending pipeline infrastructure and notifications: **12 additions, 1 in-place
+EC2 profile attachment, 0 deletions**. Four additions are the topic, subscription,
+notification role and its policy; eight are the previous ECR/IAM resources.
+Nothing in this plan has been applied. Use this expanded review plan rather
+than the earlier pipeline plan. After approved apply and owner confirmation,
+verify the role policies/trust and confirmed subscription, then test delivery
+through the failure workflow. Authentication and delivery remain unverified.
+
+SNS standard requests cost $0.50 per million requests and email deliveries
+$2.00 per 100,000 deliveries beyond applicable free allowances. Ordinary small
+failure-alert volumes therefore have very small usage charges; taxes and any
+other applicable charges are additional. Existing ECR/RDS/EC2/NAT costs remain
+separate.
+
+References:
+
+- [AWS email subscription confirmation](https://docs.aws.amazon.com/sns/latest/dg/sns-email-notifications.html)
+- [SNS pricing](https://aws.amazon.com/sns/pricing/)
+- [SNS pricing FAQ](https://aws.amazon.com/sns/faqs/)
+
+## Application database setup — configuration prepared, initialization pending
+
+`secrets.tf` creates secret containers `8byte-devops/staging/database` and
+`8byte-devops/production/database` with seven-day deletion recovery. No secret
+versions or password values are managed by Terraform. EC2 receives only
+GetSecretValue on these two secret ARNs, using AWS-managed secret encryption;
+no admin-secret access is added. The shared host role can read both environments.
+Output `database_secret_arns` maps staging and production to their secret ARNs.
+
+The post-apply initialization step must generate different random passwords
+and store connection JSON in each matching secret outside Terraform:
+`engine`, `host`, `port`, `dbname`, `username`, `password`.
+Staging uses app_staging/staging_user; production uses
+app_production/production_user. Map host/port/dbname into POSTGRES_URL and use
+username/password as POSTGRES_USER/POSTGRES_PASS. No resolved credentials belong
+in version control, terminal output, command arguments or Terraform state.
+Secrets remain empty until their values are explicitly populated.
+
+`initialize_databases.sql` creates missing login roles and owned databases,
+rejects unexpected existing database owners, revokes PUBLIC database access and
+cross-environment grants, and removes PUBLIC schema permissions. Application
+users own their databases because PetClinic initializes tables on startup; this
+is database-scoped access, not read/write-only permissions. Existing passwords
+and data are preserved; rerunning requires the matching existing secret values.
+The administrator is granted role membership to create/manage owned databases.
+Credential input/execution must use protected stdin and a PostgreSQL client;
+this SQL file alone is not a credential-generation or deployment runner.
+
+Live network check from EC2 i-0098d269cbcde9de6 succeeded: RDS DNS resolved to
+10.0.10.8 and TCP 5432 accepted a connection. This does not verify PostgreSQL
+authentication. No psql executable is currently installed on EC2. Installing a
+client, secure credential initialization and authenticated verification follow
+the reviewed secret-resource apply. Required checks: both users can connect to
+their own DB, both cross-DB connections are rejected, non-TLS connectivity is
+allowed as requested, and data persists across separate connections.
+
+Formatting and validation passed. Saved database-secrets.tfplan has **3 adds,
+0 changes, 0 destructions**: two secret containers and one read policy. It has
+not been applied. Secret values, application users/databases, PetClinic/RDS
+runtime integration and ALB remain pending. Two secrets add approximately
+$0.80/month plus API calls, within the previously discussed three-secret total.
+
+Latest application handoff reports a GitHub OIDC subject mismatch blocking
+image pushes: the repository uses an immutable subject prefix, while the roles
+currently trust the original name-based prefix. No trust-policy correction was
+made in this database step; verify and review that change separately before
+claiming the deployment pipeline works.
+
+## GitHub immutable OIDC trust correction — prepared, not applied
+
+Live `gh api repos/shivshashya/8byte.ai-e2e-Workflow/actions/oidc/customization/sub`
+returned use_immutable_subject=true and the exact supplied prefix. The source
+now builds that prefix from github_repository, github_owner_id (109200716) and
+github_repository_id (1410967056). Deployment trust allows only main;
+notification trust allows main and pull_request. Both retain audience
+sts.amazonaws.com and the same OIDC provider. Permissions policies are unchanged.
+
+Formatting and validation passed. Saved oidc-database.tfplan includes the
+pending secret containers/read policy and the two in-place trust corrections:
+**3 additions, 2 changes, 0 deletions**. It has not been applied. Do not use the
+older database-secrets.tfplan if expecting the OIDC fix; it omits this correction.
+After approved apply, verify both AWS trust policies and rerun the failed
+workflow to prove role assumption and image push. No workflow rerun was made
+in this configuration step. This supersedes the earlier note that no OIDC
+source correction was prepared; live AWS still needs the reviewed apply.
+
+## OIDC/database-secret apply verification — 2026-10-09
+
+The reviewed plan oidc-database.tfplan was applied: 3 added, 2 changed,
+0 destroyed. AWS confirmed both immutable GitHub subjects and audience,
+two application secret containers, and EC2 GetSecretValue scoped to those
+secret ARNs. Deployment trust remains main-only; notification trust permits
+main/pull_request. Both application secrets currently have no versions/values.
+Post-apply Terraform plan exited 0 with no changes. Do not reuse the applied
+plan. GitHub workflow rerun/OIDC authentication, credential population,
+PostgreSQL users/databases and isolation checks remain pending. ALB remains
+pending. This checkpoint supersedes earlier not-applied notes for this step.
+
+## Application database initialization — completed and verified, 2026-10-09
+
+The user approved credential generation, database initialization and access
+checks. `scripts/initialize_databases.py --execute` completed through SSH to
+private EC2. PostgreSQL 17 client was installed on the host; RDS remains
+PostgreSQL 18.4. Operator AWS credentials retrieved the RDS-managed admin secret;
+EC2's IAM policy still permits only the two application secrets. Admin values
+were passed through noninteractive SSH stdin and a temporary protected pgpass
+file, not command arguments or Terraform. Temporary credential/key files were
+removed. Generated application passwords are different 64-character random
+hex strings (256-bit entropy). They are stored as AWSCURRENT versions outside
+Terraform with the documented engine/host/port/dbname/username/password contract.
+
+| Environment | Database | User | Secret name |
+| --- | --- | --- | --- |
+| staging | app_staging | staging_user | 8byte-devops/staging/database |
+| production | app_production | production_user | 8byte-devops/production/database |
+
+The prepared SQL created the databases/users, with each app user owning only
+its matching application database, no superuser/create-role/create-database/
+replication/bypass-RLS privileges and no inherited role memberships. PUBLIC
+and cross-environment database grants were revoked; PUBLIC schema access was
+removed. The admin retains membership to manage these owned databases.
+
+Runtime checks passed for both environments: own database login, cross-database
+connection rejected specifically for CONNECT permission, non-TLS connectivity,
+and persistence of an inserted row across separate connections. Unique test
+tables were dropped afterward. The host used its instance role to retrieve both
+stored application credentials successfully. A second initializer run passed
+without changing either secret version; existing credentials were reused.
+The post-operation Terraform plan exited 0 with no changes.
+
+To rerun explicitly as an authorized operator (not a deployment job):
+
+```bash
+python3 8Byte-Infra/scripts/initialize_databases.py --execute
+```
+
+The runner reads current Terraform outputs, validates the AWS account, uses
+previously trusted SSH host keys, generates temporary SSH keys, and preflights
+existing owners/privileges and statement logging. It preserves existing secret
+values and passwords and writes any missing secret values before SQL, enabling
+recovery after a partial run. It aborts on unexpected owners, privileged app
+roles, app role memberships, or an existing role without recorded credentials.
+`database_host.py` is an internal helper consumed over SSH; it must not receive
+resolved credentials via command arguments or terminal-pasted JSON.
+
+This proves database/client connectivity and database-level permission
+isolation. PetClinic containers have not yet been connected to these RDS
+credentials, so app startup/restart persistence and host container isolation
+remain pending. Shared EC2 IAM can read both secrets; database isolation does
+not isolate privileged host operators or applications with host credentials.
+ALB is the next infrastructure milestone. This checkpoint supersedes earlier
+notes that the application secrets were empty and databases uninitialized.

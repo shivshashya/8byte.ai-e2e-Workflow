@@ -228,12 +228,45 @@ variable "ecr_retained_image_count" {
 }
 
 variable "github_repository" {
-  description = "Exact GitHub owner/repository allowed to assume the deployment role from main."
+  description = "GitHub owner/repository name included alongside immutable IDs in the exact OIDC trust subject."
   type        = string
   default     = "shivshashya/8byte.ai-e2e-Workflow"
 
   validation {
     condition     = can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
     error_message = "github_repository must use owner/repository format without wildcards."
+  }
+}
+
+variable "github_owner_id" {
+  description = "Immutable GitHub repository owner ID, verified through GitHub's OIDC customization API."
+  type        = string
+  default     = "109200716"
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]*$", var.github_owner_id))
+    error_message = "github_owner_id must be a positive numeric GitHub owner ID."
+  }
+}
+
+variable "github_repository_id" {
+  description = "Immutable GitHub repository ID, verified through GitHub's OIDC customization API."
+  type        = string
+  default     = "1410967056"
+
+  validation {
+    condition     = can(regex("^[1-9][0-9]*$", var.github_repository_id))
+    error_message = "github_repository_id must be a positive numeric GitHub repository ID."
+  }
+}
+
+variable "pipeline_alert_email" {
+  description = "Owner email for pipeline failure alerts; must confirm the AWS SNS subscription email."
+  type        = string
+  default     = "shivshashyadev@gmail.com"
+
+  validation {
+    condition     = can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.pipeline_alert_email))
+    error_message = "pipeline_alert_email must be an email address."
   }
 }
