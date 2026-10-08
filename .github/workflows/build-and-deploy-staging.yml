@@ -1,0 +1,72 @@
+name: Build and deploy to staging
+
+# Runs when a pull request is merged into main and the application changed.
+# The image built here is the only build of this commit: staging runs it
+# first, and the production workflow later deploys this same image.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/build-and-deploy-staging.yml"
+
+# id-token lets the job prove its identity to AWS and receive short-lived
+# credentials, so no AWS access keys are stored in GitHub.
+permissions:
+  contents: read
+  id-token: write
+
+# Finish one release before starting the next, so two merges in quick
+# succession cannot deploy out of order.
+concurrency:
+  group: build-and-deploy-staging
+  cancel-in-progress: false
+
+env:
+  # The commit ID is the image tag. It is unique, so an image is never
+  # overwritten, and it shows exactly which code is running.
+  IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+
+jobs:
+  build-and-push:
+    name: Build, scan and push image
+    runs-on: ubuntu-latest
+    # Stop a hung job early; the default limit is six hours of runner time.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The runner is x86_64, which matches the EC2 host.
+      - name: Build image
+        run: docker build -t "$IMAGE" app
+
+      # Report only: list every HIGH and CRITICAL finding in the job log.
+      - name: Report HIGH and CRITICAL vulnerabilities in the image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+
+      # Gate: an image with a fixable CRITICAL finding is never pushed.
+      - name: Fail on fixable CRITICAL vulnerabilities in the image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Get AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Log in to ECR
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Push image
+        run: docker push "$IMAGE"
