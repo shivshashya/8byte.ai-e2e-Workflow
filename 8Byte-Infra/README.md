@@ -24,6 +24,7 @@ RDS and ALB remain for subsequent reviewed steps.
 | `security_groups.tf` | Define four security groups and explicit inbound/outbound rules. |
 | `ssh_access.tf` | Define the SSH endpoint in private subnet A. |
 | `ec2.tf` | Verify the pinned AMI and define the shared private application host. |
+| `rds.tf` | Define the private Single-AZ PostgreSQL instance, subnet group and optional-TLS parameter group. |
 | `scripts/bootstrap_ec2.sh` | First-boot installation of Docker and deployment tools, service startup, and local log rotation. |
 | `variables.tf` | Define configurable region, account, names, CIDRs, Availability Zones, and staging/production host ports. |
 | `outputs.tf` | Expose network IDs, security group IDs, SSH endpoint ID, NAT gateway ID, and NAT public IP after an apply. |
@@ -418,3 +419,68 @@ Official references:
   group, encrypted 30 GiB gp3, IMDSv2, and Standard CPU credits. Terraform
   released the lock. No apply, bootstrap run, or SSH test
   or PetClinic deployment has been performed for this stage.
+
+## PostgreSQL RDS — configured, not applied
+
+The reviewed configuration uses PostgreSQL 18.4 on `db.t3.small` (2 vCPUs,
+2 GiB RAM), 20 GiB encrypted gp3 and Single-AZ placement in private A.
+The subnet group includes both private subnets. The existing RDS security group
+allows TCP 5432 only from the application EC2 security group. Public access is
+disabled. AWS orderable-instance checks confirmed this version/class is offered
+in our AZs; the checked T4g small combinations were listed only in us-east-1f.
+
+The user chose optional TLS. PostgreSQL 18 defaults to requiring TLS, so a
+custom `postgres18` parameter group sets `rds.force_ssl = 0` through
+`rds_require_tls = false`. TLS remains available, and unencrypted connections
+are permitted. A future parameter change uses pending-reboot application;
+review and reboot deliberately after changing it.
+
+RDS generates the `db_admin` password and stores it in Secrets Manager using
+`manage_master_user_password = true`. Terraform exposes only the secret ARN
+and never retrieves its password. No password belongs in variables, outputs,
+plans, logs or chat. This stage creates only the RDS-managed admin secret.
+The application databases `app_staging` and `app_production`, restricted users,
+and their two separate secrets require post-provision initialization. Do not
+run application containers with the admin account. Secret retrieval and
+pipeline permissions remain to be reviewed; SSH-only does not require SSM.
+
+Automated backups retain seven days, with a 01:00–01:30 UTC backup window and
+Sunday 02:00–03:00 UTC maintenance window. Automatic minor upgrades are enabled;
+major upgrades are not. Future changes use the maintenance window rather than
+`apply_immediately`. Capacity is fixed at 20 GiB unless deliberately resized;
+storage autoscaling is not enabled. Application load and connection counts
+must be measured after deployment. Shared DB capacity and failures affect both
+environments; Single-AZ provides no standby failover.
+
+Deletion protection is enabled. Cleanup requires a reviewed apply to disable
+it, then a separately approved deletion. A final snapshot is required and
+retained; its default name is `petclinic-<project_name>-final`. Override
+`rds_final_snapshot_identifier` if that snapshot already exists. Retained
+snapshots and secrets can continue incurring charges after cleanup.
+
+Verified public AWS us-east-1 list prices: compute $0.036/hour ($26.28 per
+730 hours); 20 GiB gp3 $2.30/month; Secrets Manager $0.40/secret/month plus
+API calls. This stage's one secret gives a baseline of $28.98/month or roughly
+$2.86/72 hours. Including the two later application secrets gives $29.78/month
+or roughly $2.94/72 hours. Taxes, transfer, excess backup storage and surplus
+CPU credits are additional. RDS T3 runs in Unlimited mode, unlike our EC2's
+Standard credits. Existing EC2, NAT and future ALB costs are separate.
+
+After an approved apply, verify RDS availability, private network placement,
+storage encryption, backup retention and applied parameter settings. Connect
+from EC2, verify non-TLS connectivity is allowed and confirm restricted-user
+cross-database access is rejected after database initialization. These runtime
+checks have not yet run.
+
+References:
+
+- [AWS PostgreSQL TLS behavior](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/PostgreSQL.Concepts.General.SSL.html)
+- [RDS-managed admin passwords](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-secrets-manager.html)
+- [AWS us-east-1 RDS price list](https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/us-east-1/index.json)
+- [RDS pricing and CPU credits](https://aws.amazon.com/rds/postgresql/pricing/)
+- [Secrets Manager pricing](https://aws.amazon.com/secrets-manager/pricing/)
+
+Configuration checks passed: `terraform fmt -check` and `terraform validate`.
+Saved review plan `rds.tfplan` contains **3 additions, 0 changes, 0 destructions**:
+RDS instance, DB subnet group and DB parameter group. It has not been applied.
+The managed admin secret is created by RDS, not a separate Terraform resource.

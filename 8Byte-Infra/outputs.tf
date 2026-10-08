@@ -72,3 +72,33 @@ output "ec2_private_ip" {
   description = "Private IPv4 address of the shared application host."
   value       = aws_instance.application.private_ip
 }
+
+output "rds_instance_id" {
+  description = "Shared PostgreSQL RDS identifier."
+  value       = aws_db_instance.application.id
+}
+
+output "rds_address" {
+  description = "Private PostgreSQL hostname for application JDBC connections."
+  value       = aws_db_instance.application.address
+}
+
+output "rds_port" {
+  description = "PostgreSQL TCP port."
+  value       = aws_db_instance.application.port
+}
+
+output "rds_admin_secret_arn" {
+  description = "ARN of the RDS-managed admin secret; does not expose the password."
+  value       = aws_db_instance.application.master_user_secret[0].secret_arn
+}
+
+output "ecr_repository_url" {
+  description = "PetClinic image repository URL shared by staging and production."
+  value       = aws_ecr_repository.petclinic.repository_url
+}
+
+output "github_actions_role_arn" {
+  description = "Role ARN for GitHub Actions OIDC authentication from this repository's main branch."
+  value       = aws_iam_role.github_actions.arn
+}

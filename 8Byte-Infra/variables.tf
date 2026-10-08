@@ -132,3 +132,108 @@ variable "ec2_cpu_credit_mode" {
     error_message = "ec2_cpu_credit_mode must be standard or unlimited."
   }
 }
+
+variable "rds_engine_version" {
+  description = "Reviewed PostgreSQL major/minor version; verify class and AZ availability before changing."
+  type        = string
+  default     = "18.4"
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+$", var.rds_engine_version))
+    error_message = "rds_engine_version must use major.minor format, such as 18.4."
+  }
+}
+
+variable "rds_instance_class" {
+  description = "Shared PostgreSQL instance class; db.t3.small has 2 vCPUs and 2 GiB RAM."
+  type        = string
+  default     = "db.t3.small"
+}
+
+variable "rds_storage_gib" {
+  description = "Encrypted gp3 capacity in GiB; automatic storage scaling is not enabled."
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.rds_storage_gib >= 20 && var.rds_storage_gib <= 65536 && var.rds_storage_gib == floor(var.rds_storage_gib)
+    error_message = "rds_storage_gib must be an integer from 20 to 65536."
+  }
+}
+
+variable "rds_admin_username" {
+  description = "Administrative PostgreSQL account; application containers use separate restricted users."
+  type        = string
+  default     = "db_admin"
+
+  validation {
+    condition     = can(regex("^[A-Za-z][A-Za-z0-9_]{0,62}$", var.rds_admin_username))
+    error_message = "rds_admin_username must start with a letter and contain at most 63 letters, digits or underscores; AWS also rejects reserved names."
+  }
+}
+
+variable "rds_backup_retention_days" {
+  description = "Days of automated RDS backups retained."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.rds_backup_retention_days >= 1 && var.rds_backup_retention_days <= 35 && var.rds_backup_retention_days == floor(var.rds_backup_retention_days)
+    error_message = "rds_backup_retention_days must be an integer from 1 to 35."
+  }
+}
+
+variable "rds_require_tls" {
+  description = "Whether PostgreSQL requires TLS. False permits both TLS and unencrypted connections, as requested."
+  type        = bool
+  default     = false
+}
+
+variable "rds_deletion_protection" {
+  description = "Block database deletion until explicitly disabled in a reviewed apply."
+  type        = bool
+  default     = true
+}
+
+variable "rds_final_snapshot_identifier" {
+  description = "Unique final snapshot name for deletion; null uses petclinic-<project_name>-final. Change it if that snapshot already exists."
+  type        = string
+  default     = null
+
+  validation {
+    condition = var.rds_final_snapshot_identifier == null ? true : (
+      can(regex("^[A-Za-z][A-Za-z0-9-]{0,254}$", var.rds_final_snapshot_identifier)) &&
+      !endswith(var.rds_final_snapshot_identifier, "-") &&
+      !strcontains(var.rds_final_snapshot_identifier, "--")
+    )
+    error_message = "Snapshot name must start with a letter, use only letters, digits and hyphens, have no consecutive/trailing hyphens, and be at most 255 characters."
+  }
+}
+
+variable "ecr_repository_name" {
+  description = "One private image repository shared by staging and production."
+  type        = string
+  default     = "8byte-petclinic"
+}
+
+variable "ecr_retained_image_count" {
+  description = "Keep this many newest ECR images; older images may expire even if deployed."
+  type        = number
+  default     = 30
+
+  validation {
+    condition     = var.ecr_retained_image_count >= 1 && var.ecr_retained_image_count == floor(var.ecr_retained_image_count)
+    error_message = "ecr_retained_image_count must be a positive integer."
+  }
+}
+
+variable "github_repository" {
+  description = "Exact GitHub owner/repository allowed to assume the deployment role from main."
+  type        = string
+  default     = "shivshashya/8byte.ai-e2e-Workflow"
+
+  validation {
+    condition     = can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
+    error_message = "github_repository must use owner/repository format without wildcards."
+  }
+}
