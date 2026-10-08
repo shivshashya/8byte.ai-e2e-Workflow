@@ -7,7 +7,7 @@ systemctl disable --now amazon-ssm-agent
 
 # Install the host tools and explicitly ensure EC2 Instance Connect is present.
 for attempt in 1 2 3; do
-  if dnf install -y docker awscli2 jq ec2-instance-connect; then
+  if dnf install -y docker awscli-2 jq ec2-instance-connect; then
     break
   fi
   if [ "$attempt" -eq 3 ]; then

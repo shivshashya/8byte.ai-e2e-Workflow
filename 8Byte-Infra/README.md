@@ -6,8 +6,9 @@ SSH. The user applied the network foundation; read-only AWS checks verified
 the resources and routing afterward. The reviewed security groups and SSH
 endpoint have also been applied and verified in AWS. The NAT gateway, its
 Elastic IP, and private-A default route have also been applied and verified.
-The SSH-only EC2 host is configured and planned, but has not been
-applied. RDS and ALB remain for subsequent reviewed steps.
+The user approved the corrected SSH-only EC2 replacement. Cloud-init, SSH,
+Docker, outbound HTTPS, and a Docker Hub image pull/container run passed.
+RDS and ALB remain for subsequent reviewed steps.
 
 ## Files
 
@@ -181,7 +182,7 @@ Official references:
 - [Endpoint operation and pricing](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-with-ec2-instance-connect-endpoint.html)
 - [Endpoint security-group rules](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/eice-security-groups.html)
 
-## Shared EC2 host — configured, not applied
+## Shared EC2 host — applied and verified
 
 | Setting | Configuration |
 | --- | --- |
@@ -246,6 +247,35 @@ cloud-init completion, inspect `/var/log/cloud-init-output.log`, confirm Docker
 and SSH services, confirm SSM is disabled, test SSH through the endpoint,
 and test an HTTPS download and a container image pull through NAT. Passing a
 Terraform plan alone does not verify the bootstrap or connectivity.
+
+Verification on 2026-10-09: the original instance failed bootstrap because the
+script requested nonexistent AL2023 package `awscli2`. After correcting it to
+`awscli-2`, the user approved `ec2-bootstrap-fix.tfplan`; apply replaced EC2
+(one added, zero changed, one destroyed). Both applied EC2 plans are stale and
+must not be reused.
+
+Replacement instance `i-0098d269cbcde9de6` is running at `10.0.10.213`.
+Both EC2 health checks passed. It has no public IP or instance profile;
+the 30 GiB gp3 root disk is encrypted, IMDSv2 is required with hop limit 1,
+and CPU credits use Standard mode. SSH through the endpoint worked.
+Cloud-init returned `status: done` and logged `EC2 host bootstrap completed.`
+Docker and SSH are active; SSM is disabled and inactive. Docker log rotation
+matches the source configuration. HTTPS returned HTTP 200, and
+`sudo docker run --rm hello-world` pulled the amd64 Docker Hub image and
+successfully ran it through NAT. The test container was automatically removed.
+A post-apply Terraform plan returned exit code 0 with no changes.
+PetClinic deployment and its runtime/resource/isolation checks remain pending.
+
+Connect using the current instance ID:
+
+```bash
+aws ec2-instance-connect ssh \
+  --region us-east-1 \
+  --instance-id i-0098d269cbcde9de6 \
+  --os-user ec2-user \
+  --connection-type eice \
+  --eice-options endpointId=eice-056f2c3b79e0a9760,maxTunnelDuration=300
+```
 
 Official references:
 
