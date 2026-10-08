@@ -20,6 +20,7 @@ resource "aws_instance" "application" {
   subnet_id                   = aws_subnet.private_a.id
   vpc_security_group_ids      = [aws_security_group.ec2.id]
   associate_public_ip_address = false
+  iam_instance_profile        = aws_iam_instance_profile.application.name
 
   # First-boot setup only; changes to this script require a reviewed replacement.
   user_data                   = file("${path.module}/scripts/bootstrap_ec2.sh")
