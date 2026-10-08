@@ -5,7 +5,7 @@
   <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>4.1.0</version>
+    <version>4.1.1</version>
   </parent>
 
   <groupId>org.springframework.samples</groupId>
@@ -35,6 +35,11 @@
     <maven-checkstyle.version>3.6.0</maven-checkstyle.version>
     <nohttp-checkstyle.version>0.0.11</nohttp-checkstyle.version>
     <spring-format.version>0.0.47</spring-format.version>
+
+    <!-- Security overrides: Spring Boot 4.1.1 still manages Tomcat 11.0.24 and Jackson 3.1.5, which have
+      known CRITICAL/HIGH vulnerabilities. Remove each line once the Spring Boot parent manages a fixed version. -->
+    <tomcat.version>11.0.25</tomcat.version>
+    <jackson-bom.version>3.1.7</jackson-bom.version>
   </properties>
 
   <dependencies>
