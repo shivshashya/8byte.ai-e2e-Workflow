@@ -102,3 +102,39 @@ jobs:
           severity: CRITICAL
           ignore-unfixed: true
           exit-code: "1"
+
+  notify-failure:
+    name: Email on failure
+    # Runs only when at least one of the checks above failed.
+    needs: [unit-tests, integration-tests, dependency-scan]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Only this job may request AWS credentials, and its role can do nothing
+    # except publish to the failure topic.
+    permissions:
+      id-token: write
+    steps:
+      - name: Get AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_NOTIFY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # SNS delivers the message to the email address subscribed to the topic.
+      - name: Publish failure message
+        working-directory: .
+        # Text chosen by the pull request author is passed as environment
+        # variables, never pasted into the script itself.
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BRANCH: ${{ github.head_ref }}
+        run: |
+          aws sns publish \
+            --topic-arn "${{ vars.SNS_TOPIC_ARN }}" \
+            --subject "PR checks failed: ${{ github.repository }} #${{ github.event.pull_request.number }}" \
+            --message "Pull request #${{ github.event.pull_request.number }} ($PR_TITLE) failed its checks.
+          Branch: $PR_BRANCH
+          Commit: ${{ github.event.pull_request.head.sha }}
+          Started by: ${{ github.actor }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

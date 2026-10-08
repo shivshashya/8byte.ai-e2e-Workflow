@@ -70,3 +70,29 @@ jobs:
 
       - name: Push image
         run: docker push "$IMAGE"
+
+  notify-failure:
+    name: Email on failure
+    # Runs only when a job above failed.
+    needs: [build-and-push]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # A separate role that can do nothing except publish to the failure topic.
+      - name: Get AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_NOTIFY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # SNS delivers the message to the email address subscribed to the topic.
+      - name: Publish failure message
+        run: |
+          aws sns publish \
+            --topic-arn "${{ vars.SNS_TOPIC_ARN }}" \
+            --subject "Release to staging failed: ${{ github.repository }}" \
+            --message "The build and deploy to staging workflow failed on main.
+          Commit: ${{ github.sha }}
+          Started by: ${{ github.actor }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
