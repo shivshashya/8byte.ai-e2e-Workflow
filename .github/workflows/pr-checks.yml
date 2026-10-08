@@ -1,4 +1,4 @@
-name: PR checks
+name: PR checks 
 
 # Runs on every pull request that targets main. Nothing is built or deployed
 # here; the goal is to stop a broken or vulnerable change before it merges.
