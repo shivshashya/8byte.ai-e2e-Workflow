@@ -1,0 +1,145 @@
+name: Deploy to production
+
+# Started by a person from the Actions tab. Starting it is the manual approval:
+# GitHub records who started the run, when, and which staging run they approved.
+# Nothing is built here. Production receives the exact image that a successful
+# staging run already deployed.
+on:
+  workflow_dispatch:
+    inputs:
+      staging_run_id:
+        description: Run ID of the successful "Build and deploy to staging" run to promote
+        required: true
+        type: string
+
+# actions: read lets the job look up the staging run it was asked to promote.
+# id-token lets it receive short-lived AWS credentials.
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+# One production deployment at a time.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote staging image to production
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # Only the deploy scripts are needed here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The approver chooses a staging run, never an image. The run must be a
+      # finished, successful release from main whose staging deployment passed.
+      - name: Check the approved staging run
+        id: staging
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.staging_run_id }}
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "Production is deployed from main only." >&2
+            exit 1
+          fi
+          if ! [[ "$RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "The staging run ID must be a number." >&2
+            exit 1
+          fi
+
+          run="$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID")"
+          summary="$(jq -r '[.path, .event, .head_branch, .status, .conclusion] | join(" ")' <<<"$run")"
+          expected=".github/workflows/build-and-deploy-staging.yml push main completed success"
+          if [ "$summary" != "$expected" ]; then
+            echo "Run $RUN_ID cannot be promoted. Found: $summary" >&2
+            exit 1
+          fi
+
+          deploy_job="$(gh api "repos/${{ github.repository }}/actions/runs/$RUN_ID/jobs" \
+            --jq '.jobs[] | select(.name == "Deploy to staging") | .conclusion')"
+          if [ "$deploy_job" != "success" ]; then
+            echo "Run $RUN_ID did not deploy to staging successfully." >&2
+            exit 1
+          fi
+
+          echo "sha=$(jq -r '.head_sha' <<<"$run")" >> "$GITHUB_OUTPUT"
+
+      - name: Get AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # The staging run tagged its image with its commit ID. Tags cannot be
+      # overwritten, so the digest found here is the image staging received.
+      - name: Find the image that staging run deployed
+        id: image
+        run: |
+          digest="$(aws ecr batch-get-image \
+            --repository-name "${{ vars.ECR_REPOSITORY_NAME }}" \
+            --image-ids imageTag="${{ steps.staging.outputs.sha }}" \
+            --query 'images[0].imageId.imageDigest' --output text)"
+          if ! [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "No image for commit ${{ steps.staging.outputs.sha }} in the registry. It may have expired." >&2
+            exit 1
+          fi
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      # Replaces only the production container. The script waits for the
+      # health check on the host and restores the previous image if it fails.
+      - name: Deploy the image to the production container
+        env:
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          EC2_SSH_HOST_KEY: ${{ vars.EC2_SSH_HOST_KEY }}
+        run: |
+          ./deploy/deploy-over-ssh.sh production \
+            "${{ vars.ECR_REPOSITORY_URL }}@${{ steps.image.outputs.digest }}"
+
+      # The load balancer needs a few health checks before it sends traffic.
+      - name: Check production through the load balancer
+        run: |
+          curl -fsS -o /dev/null --retry 18 --retry-delay 10 --retry-all-errors \
+            "${{ vars.PRODUCTION_URL }}/"
+
+      - name: Record what was approved
+        if: always()
+        run: |
+          {
+            echo "### Production deployment"
+            echo "- Started by: ${{ github.actor }}"
+            echo "- Approved staging run: ${{ inputs.staging_run_id }}"
+            echo "- Commit: ${{ steps.staging.outputs.sha }}"
+            echo "- Image digest: ${{ steps.image.outputs.digest }}"
+            echo "- Result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  notify-failure:
+    name: Email on failure
+    # Runs only when the job above failed.
+    needs: [promote]
+    if: failure()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # A separate role that can do nothing except publish to the failure topic.
+      - name: Get AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_NOTIFY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # SNS delivers the message to the email address subscribed to the topic.
+      - name: Publish failure message
+        env:
+          RUN_ID: ${{ inputs.staging_run_id }}
+        run: |
+          aws sns publish \
+            --topic-arn "${{ vars.SNS_TOPIC_ARN }}" \
+            --subject "Production deployment failed: ${{ github.repository }}" \
+            --message "The deploy to production workflow failed.
+          Approved staging run: $RUN_ID
+          Started by: ${{ github.actor }}
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

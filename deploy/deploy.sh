@@ -48,7 +48,7 @@ wait_until_healthy() {
 # the database settings file is left on the host after a failure.
 cleanup() {
   rm -f "${ENV_FILE:-}"
-  sudo docker logout "${REGISTRY:-}" >/dev/null 2>&1 || true
+  sudo rm -rf "${DOCKER_AUTH_DIR:-}"
 }
 
 main() {
@@ -74,22 +74,29 @@ main() {
   PREVIOUS_IMAGE="$(sudo docker inspect -f '{{.Config.Image}}' "$CONTAINER" 2>/dev/null || true)"
 
   echo "Pulling $IMAGE"
-  # docker login prints a warning about storing the token on disk; cleanup
-  # removes the token again, so only a real failure is reported.
+  # The registry token is kept in a private directory for this run only, not
+  # in the host's shared Docker settings, so a staging and a production
+  # deployment running at the same time cannot disturb each other. docker
+  # login warns about storing the token on disk; cleanup removes it, so only
+  # a real failure is reported.
+  DOCKER_AUTH_DIR="$(mktemp -d)"
   if ! aws ecr get-login-password --region "$REGION" |
-    sudo docker login --username AWS --password-stdin "$REGISTRY" >/dev/null 2>&1; then
+    sudo docker --config "$DOCKER_AUTH_DIR" login --username AWS --password-stdin "$REGISTRY" >/dev/null 2>&1; then
     echo "ECR login failed for $REGISTRY" >&2
     exit 1
   fi
   # If the pull fails the script stops here, before the running container is touched.
-  sudo docker pull --quiet "$IMAGE" >/dev/null
+  sudo docker --config "$DOCKER_AUTH_DIR" pull --quiet "$IMAGE" >/dev/null
 
-  # The database settings go into a private temporary file that cleanup
-  # removes. The values are never printed.
+  # The container's settings go into a private temporary file that cleanup
+  # removes. The values are never printed. Of the management endpoints, only
+  # health is switched on, without internal details.
   ENV_FILE="$(mktemp)"
   aws secretsmanager get-secret-value --region "$REGION" \
     --secret-id "$PROJECT/$ENVIRONMENT/database" --query SecretString --output text |
     jq -r '"SPRING_PROFILES_ACTIVE=postgres",
+           "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health",
+           "MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=never",
            "POSTGRES_URL=jdbc:postgresql://\(.host):\(.port)/\(.dbname)",
            "POSTGRES_USER=\(.username)",
            "POSTGRES_PASS=\(.password)"' >"$ENV_FILE"
@@ -97,9 +104,10 @@ main() {
   sudo docker network inspect "$NETWORK" >/dev/null 2>&1 ||
     sudo docker network create "$NETWORK" >/dev/null
 
+  # Both a container that cannot start and one that starts but never becomes
+  # healthy count as a failed deployment and lead to the rollback below.
   echo "Starting $CONTAINER on port $PORT"
-  start_container "$IMAGE"
-  if wait_until_healthy; then
+  if start_container "$IMAGE" && wait_until_healthy; then
     echo "$CONTAINER is healthy on $IMAGE"
     exit 0
   fi
@@ -107,10 +115,12 @@ main() {
   echo "$CONTAINER did not become healthy. Last log lines:" >&2
   sudo docker logs --tail 40 "$CONTAINER" >&2 || true
 
-  if [ -n "$PREVIOUS_IMAGE" ] && [ "$PREVIOUS_IMAGE" != "$IMAGE" ]; then
+  # Put back whatever was running before, even if it is the same image: a
+  # failed redeployment must not leave the environment without a container.
+  # This restores the application image only, never the database contents.
+  if [ -n "$PREVIOUS_IMAGE" ]; then
     echo "Rolling back to $PREVIOUS_IMAGE" >&2
-    start_container "$PREVIOUS_IMAGE"
-    if wait_until_healthy; then
+    if start_container "$PREVIOUS_IMAGE" && wait_until_healthy; then
       echo "Rollback succeeded: $CONTAINER is healthy on $PREVIOUS_IMAGE" >&2
     else
       echo "Rollback failed: $CONTAINER is not healthy" >&2
