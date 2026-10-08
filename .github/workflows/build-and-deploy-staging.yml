@@ -127,9 +127,16 @@ jobs:
       - name: Deploy the image to the staging container
         env:
           EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          EC2_SSH_HOST_KEY: ${{ vars.EC2_SSH_HOST_KEY }}
         run: |
           ./deploy/deploy-over-ssh.sh staging \
             "${{ vars.ECR_REPOSITORY_URL }}@${{ needs.build-and-push.outputs.digest }}"
+
+      # The load balancer needs a few health checks before it sends traffic.
+      - name: Check staging through the load balancer
+        run: |
+          curl -fsS -o /dev/null --retry 18 --retry-delay 10 --retry-all-errors \
+            "${{ vars.STAGING_URL }}/"
 
   notify-failure:
     name: Email on failure

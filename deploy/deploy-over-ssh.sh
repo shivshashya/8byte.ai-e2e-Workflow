@@ -5,6 +5,7 @@
 # Usage: deploy-over-ssh.sh <staging|production> <image>
 # Needs: EC2_INSTANCE_ID and AWS_REGION in the environment, plus AWS credentials
 # allowed to open the EC2 Instance Connect tunnel and send a temporary key.
+# Optional: EC2_SSH_HOST_KEY, the host's public SSH key ("ssh-ed25519 AAAA...").
 set -euo pipefail
 
 ENVIRONMENT="$1"
@@ -25,13 +26,21 @@ aws ec2-instance-connect send-ssh-public-key \
   --instance-os-user ec2-user \
   --ssh-public-key "file://$KEY_DIR/key.pub" >/dev/null
 
+# Confirm the machine that answers really is our host. With the host's public
+# key supplied, SSH refuses any other machine. Without it (an operator's first
+# connection) the key is accepted on first use.
+if [ -n "${EC2_SSH_HOST_KEY:-}" ]; then
+  echo "$EC2_INSTANCE_ID $EC2_SSH_HOST_KEY" >"$KEY_DIR/known_hosts"
+  HOST_KEY_CHECK=yes
+else
+  HOST_KEY_CHECK=accept-new
+fi
+
 # The host has no public IP. open-tunnel reaches it through the EC2 Instance
-# Connect endpoint, and IAM limits the tunnel to this host's SSH port. The
-# runner has never seen the host before, so it records the host key on first
-# use in a throwaway known_hosts file.
+# Connect endpoint, and IAM limits the tunnel to this host's SSH port.
 ssh -T -i "$KEY_DIR/key" \
   -o IdentitiesOnly=yes \
-  -o StrictHostKeyChecking=accept-new \
+  -o StrictHostKeyChecking="$HOST_KEY_CHECK" \
   -o UserKnownHostsFile="$KEY_DIR/known_hosts" \
   -o ConnectTimeout=20 \
   -o ServerAliveInterval=15 \
