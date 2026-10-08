@@ -1,0 +1,7 @@
+# Keep the build context small: Docker only needs the Maven wrapper, pom.xml and src.
+target/
+.git/
+.idea/
+.vscode/
+*.md
+docker-compose.yml

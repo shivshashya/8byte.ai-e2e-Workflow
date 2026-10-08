@@ -1,0 +1,32 @@
+# macOS and editor files.
+.DS_Store
+.vscode/
+.idea/
+
+# Terraform downloads, local state, saved plans, and crash logs.
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Local settings can contain secrets. Commit example files instead.
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+.env
+.env.*
+!.env.example
+
+# Private keys and certificates must never be committed.
+*.pem
+*.key
+
+# Keep .terraform.lock.hcl in version control for repeatable provider installs.
+
+# Application build output. app/.gitignore has the remaining Java-specific rules.
+app/target/
+
+# Upstream PetClinic files taken out of app/ (Gradle, Kubernetes, dev containers).
+_removed_from_app/
