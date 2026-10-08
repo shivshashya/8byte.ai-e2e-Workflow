@@ -8,6 +8,7 @@ on:
     branches: [main]
     paths:
       - "app/**"
+      - "deploy/**"
       - ".github/workflows/build-and-deploy-staging.yml"
 
 # id-token lets the job prove its identity to AWS and receive short-lived
@@ -26,6 +27,8 @@ env:
   # The commit ID is the image tag. It is unique, so an image is never
   # overwritten, and it shows exactly which code is running.
   IMAGE: ${{ vars.ECR_REPOSITORY_URL }}:${{ github.sha }}
+  # The repository's name inside the registry, used for registry queries.
+  REPOSITORY: ${{ vars.ECR_REPOSITORY_NAME }}
 
 jobs:
   build-and-push:
@@ -33,15 +36,40 @@ jobs:
     runs-on: ubuntu-latest
     # Stop a hung job early; the default limit is six hours of runner time.
     timeout-minutes: 20
+    # The digest is the image's content fingerprint. Later jobs deploy by
+    # digest, so they run exactly the bytes that were scanned here.
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Get AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      # Build once: tags in the registry cannot be overwritten, so if this
+      # commit already has an image (the workflow was re-run), reuse it.
+      - name: Check whether this commit already has an image
+        id: existing
+        run: |
+          if aws ecr batch-get-image --repository-name "$REPOSITORY" \
+               --image-ids imageTag="${{ github.sha }}" \
+               --query 'images[0].imageId.imageDigest' --output text | grep -q '^sha256:'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # The runner is x86_64, which matches the EC2 host.
       - name: Build image
+        if: steps.existing.outputs.found == 'false'
         run: docker build -t "$IMAGE" app
 
       # Report only: list every HIGH and CRITICAL finding in the job log.
       - name: Report HIGH and CRITICAL vulnerabilities in the image
+        if: steps.existing.outputs.found == 'false'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}
@@ -51,6 +79,7 @@ jobs:
 
       # Gate: an image with a fixable CRITICAL finding is never pushed.
       - name: Fail on fixable CRITICAL vulnerabilities in the image
+        if: steps.existing.outputs.found == 'false'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ env.IMAGE }}
@@ -59,22 +88,53 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
+      - name: Log in to ECR
+        if: steps.existing.outputs.found == 'false'
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+
+      - name: Push image
+        if: steps.existing.outputs.found == 'false'
+        run: docker push "$IMAGE"
+
+      - name: Read the image digest from the registry
+        id: digest
+        run: |
+          digest="$(aws ecr batch-get-image --repository-name "$REPOSITORY" \
+            --image-ids imageTag="${{ github.sha }}" \
+            --query 'images[0].imageId.imageDigest' --output text)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Image: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          echo "Digest: $digest" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-staging:
+    name: Deploy to staging
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Only the deploy scripts are needed here.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Get AWS credentials
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Log in to ECR
-        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
-
-      - name: Push image
-        run: docker push "$IMAGE"
+      # Connects to the private EC2 host through the EC2 Instance Connect
+      # endpoint and replaces only the staging container. The script waits for
+      # the health check and restores the previous image if it fails.
+      - name: Deploy the image to the staging container
+        env:
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+        run: |
+          ./deploy/deploy-over-ssh.sh staging \
+            "${{ vars.ECR_REPOSITORY_URL }}@${{ needs.build-and-push.outputs.digest }}"
 
   notify-failure:
     name: Email on failure
     # Runs only when a job above failed.
-    needs: [build-and-push]
+    needs: [build-and-push, deploy-staging]
     if: failure()
     runs-on: ubuntu-latest
     timeout-minutes: 5
