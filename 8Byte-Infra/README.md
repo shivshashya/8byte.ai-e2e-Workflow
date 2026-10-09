@@ -1,5 +1,17 @@
 # Infrastructure: networking and shared application host
 
+**Lifecycle update, 2026-10-09:** infrastructure cleanup completed after an
+intentional partial destroy. The reviewed cleanup plan destroyed the eight
+remaining resources with no additions/updates. Remote Terraform state is empty
+and a fresh destroy plan returned no changes. Final encrypted RDS snapshot
+`petclinic-8byte-devops-final` is available; two application secrets are scheduled
+for deletion under their recovery window. Earlier deployed
+checkpoints below are historical. The S3 backend bucket remains outside
+Terraform management. Retained configuration would recreate infrastructure
+on a normal apply; reprovisioning requires a new explicit request. Snapshot/S3
+storage remains subject to charges; see
+[AWS backup retention guidance](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_DeleteInstance.html).
+
 This configuration defines the shared VPC, four subnets, an internet gateway,
 route tables, four security groups, and an EC2 Instance Connect Endpoint for
 SSH. The user applied the network foundation; read-only AWS checks verified
