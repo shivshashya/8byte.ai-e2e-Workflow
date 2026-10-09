@@ -2,6 +2,18 @@ locals {
   host_metric_namespace = "${var.project_name}/Host"
   cloudwatch_agent_config = jsonencode({
     agent = { metrics_collection_interval = 60, region = var.aws_region }
+    logs = {
+      force_flush_interval = 5
+      logs_collected = {
+        files = {
+          collect_list = [for name, path in local.system_log_files : {
+            file_path       = path
+            log_group_name  = aws_cloudwatch_log_group.system.name
+            log_stream_name = "{instance_id}/${name}"
+          }]
+        }
+      }
+    }
     metrics = {
       namespace              = local.host_metric_namespace
       append_dimensions      = { InstanceId = "$${aws:InstanceId}" }

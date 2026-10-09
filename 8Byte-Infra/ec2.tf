@@ -24,7 +24,7 @@ resource "aws_instance" "application" {
 
   # First-boot setup only; changes to this script require a reviewed replacement.
   user_data = join("\n", [
-    file("${path.module}/scripts/bootstrap_ec2.sh"),
+    templatefile("${path.module}/scripts/bootstrap_ec2.sh", { docker_logging_config = local.docker_logging_config }),
     "install -d -m 0755 /opt/aws/amazon-cloudwatch-agent/etc",
     "echo '${base64encode(local.cloudwatch_agent_config)}' | base64 --decode > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json",
     "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s",
@@ -58,6 +58,7 @@ resource "aws_instance" "application" {
   depends_on = [
     aws_route.private_a_internet,
     aws_iam_role_policy.application_metrics,
+    aws_iam_role_policy.application_logs,
   ]
 
   tags = {

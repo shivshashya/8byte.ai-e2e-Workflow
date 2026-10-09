@@ -841,9 +841,8 @@ or persist refreshed resource values as an apply does.
 ## Part 3: metrics and dashboards
 
 Monitoring configuration is prepared locally in `monitoring.tf`; it has not
-been applied or verified on a recreated host. Centralized application, system
-and access logging remains a separate Part 3 milestone. No alarms are created
-in this metrics step.
+been applied or verified on a recreated host. Centralized logging is also
+prepared locally, as described below. No alarms are created in this step.
 
 | Scope | Metrics | Purpose |
 | --- | --- | --- |
@@ -940,3 +939,133 @@ See [CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/),
 [agent configuration](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-Configuration-File-Details.html),
 [ALB metrics](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-cloudwatch-metrics.html)
 and [RDS metrics](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-metrics.html).
+
+## Part 3: centralized logging and retention
+
+Logging configuration is prepared in `logging.tf` and EC2 first-boot setup.
+No logging resources have been applied and no live delivery has been verified.
+
+| Log source | Central destination | Default retention |
+| --- | --- | --- |
+| PetClinic stdout/stderr | CloudWatch group `/8byte-devops/application`; stream `petclinic-<environment>/<full-container-id>` | 14 days |
+| Host system, authentication and bootstrap output | CloudWatch group `/8byte-devops/system`; stream `<instance-id>/<source>` | 14 days |
+| ALB HTTP access records | Dedicated private S3 bucket, `alb/AWSLogs/<account-id>/` prefix | 30 days |
+
+Names follow `project_name`. Change `cloudwatch_log_retention_days` or
+`alb_access_log_retention_days` through Terraform; do not change retention
+manually. Expiration is asynchronous, so the periods are not exact deletion
+deadlines. `terraform output logging_destinations` shows the destinations.
+
+### Application and host collection
+
+The Docker daemon defaults to the `awslogs` driver. Existing deployment
+scripts create `petclinic-staging` and `petclinic-production` without a driver
+override, so newly created containers inherit it. Each container incarnation
+gets its own stream, avoiding concurrent writers and preserving logs after
+container replacement. Application logs share a group but are identifiable
+by environment; this does not provide separate IAM isolation between them.
+Application and workflow files require no changes for this collection path.
+
+Docker uses the host instance role for outbound log writes. The application
+container receives no AWS credentials; IMDSv2 and hop limit 1 remain configured.
+Terraform creates both log groups and grants stream creation, stream discovery
+and event writes only within those groups before EC2 launches. It does not
+grant the host group creation/deletion or retention changes. Allow for IAM
+propagation before deployment; missing groups or permissions can prevent a
+new container, including a rollback container, from starting.
+
+Non-blocking delivery has a 4 MB buffer. An extended outage can lose buffered
+events. A rotating local read cache (three 10 MB files per container) keeps
+`docker logs --tail` available for deployment diagnostics, but is not a durable
+replay queue; remote-driver failures can also affect the cache.
+
+AL2023 normally keeps system events in journald. Bootstrap installs rsyslog
+with a journal input and writes system events to `/var/log/messages` and
+authentication events to `/var/log/secure`. The CloudWatch agent follows these
+files plus `/var/log/cloud-init-output.log`, in separate instance-labelled
+streams. Rsyslog receives no network input. Root-only system files rotate
+daily (or for size when logrotate runs), keeping seven archives. Size checks
+depend on the logrotate schedule and are not a hard disk-capacity limit.
+
+This requires neither SSM nor an inbound collection port. Both Docker and
+the host collector use existing NAT egress to regional CloudWatch APIs.
+The changed user data replaces EC2 in a reviewed plan; a daemon default
+change alone would not migrate existing containers' logging configuration.
+
+### ALB access-log storage
+
+The bucket is separate from Terraform state, blocks public access, disables
+ACLs through bucket-owner enforcement, and uses SSE-S3 encryption (the mode
+supported for ALB access logs). Only the ELB log-delivery service can write
+the account-specific prefix, with a source ARN limited to this account and
+region. Non-service requests over insecure transport are denied. EC2 and
+pipeline roles are not granted access to this bucket.
+
+ALB logging is enabled only after the bucket policy, encryption, ownership
+and lifecycle configuration exist. The prefix expires after the configured
+period. Versioning is not enabled, so expiration does not leave hidden object
+versions. `force_destroy = false` prevents automatic removal of a nonempty
+bucket during teardown; review log preservation and bucket cleanup separately.
+Deleting the CloudWatch resources in a full destroy does delete their groups
+and stored events; retention alone does not preserve them against destroy.
+
+Access logs cover ALB traffic and identify the target group; direct host-port
+traffic is outside their scope. Delivery is best effort and delayed, so use
+metrics for rates and log records for investigation. They are stored in S3,
+not copied to CloudWatch, and this implementation adds no Athena or Lambda.
+URLs and client addresses can contain sensitive data; avoid credentials in
+URLs and restrict operator read permissions when granting access.
+
+### Validation and runtime evidence
+
+The existing mocked test file now includes a logging contract covering
+retention, log destinations, Docker stream names/cache settings, host IAM
+scope, ALB delivery, S3 public-access blocking, encryption and expiration.
+Terraform validation and shell syntax checks do not prove Linux services or
+AWS log delivery work. After the teardown audit and approved recreation:
+
+1. Confirm cloud-init succeeded, `rsyslogd -N1` succeeds, and rsyslog/CloudWatch
+   services are active. Check agent errors and the three system streams.
+2. Inspect each deployed container's `HostConfig.LogConfig`: driver `awslogs`,
+   expected group, unique environment/name tag and bounded cache. Verify
+   ordinary startup output appears in its stream and `docker logs --tail 20`
+   still works. Do not print container environment settings or secrets.
+3. Make ordinary requests through both listeners. Check for actual compressed
+   ALB records beneath the dated `elasticloadbalancing/<region>/` path; the
+   permission-test object alone is not runtime delivery evidence. Identify
+   each environment by its target-group ARN from Terraform outputs.
+4. Verify both CloudWatch retentions, the S3 lifecycle and bucket policy,
+   then run a fresh no-change plan. Check delivery without restarting
+   production, sending test notifications or injecting failures.
+
+Example Logs Insights query for production application errors (select the
+application group and a narrow time range):
+
+```text
+fields @timestamp, @logStream, @message
+| filter @logStream like /petclinic-production\//
+| filter @message like /ERROR|Exception/
+| sort @timestamp desc
+| limit 50
+```
+
+### Logging cost budget
+
+Logging charges depend on volume. In us-east-1, budget approximately $0.50
+per GB of CloudWatch ingestion and $0.03 per GB-month of compressed stored
+logs, before account-wide free allowances. For S3 Standard, budget $0.023
+per GB-month and $0.005 per 1,000 PUT requests. As an illustration, 1 GB/month
+ingested, 1 GB average billed CloudWatch storage, 1 GB average S3 storage and
+1,000 S3 PUTs add about $0.56/month. These are assumptions, not measured usage;
+ALB file counts can exceed this example even with light traffic.
+
+Add Logs Insights scans, S3 reads, NAT data processing/transfer and taxes.
+This is separate from the approximately $6.60/month metrics/dashboard budget
+and existing compute/database/network charges. Recheck regional rates and
+actual volumes before apply. Sources:
+[CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/),
+[S3 pricing](https://aws.amazon.com/s3/pricing/),
+[Docker CloudWatch driver](https://docs.docker.com/engine/logging/drivers/awslogs/),
+[Docker local-cache limitations](https://docs.docker.com/engine/logging/dual-logging/),
+[ALB access-log setup](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/enable-access-logging.html)
+and [AL2023 journald](https://docs.aws.amazon.com/linux/al2023/ug/journald.html).

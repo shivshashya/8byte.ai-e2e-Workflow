@@ -12,10 +12,20 @@ resource "aws_lb" "application" {
   enable_deletion_protection = var.alb_deletion_protection
   idle_timeout               = 60
 
+  access_logs {
+    enabled = true
+    bucket  = aws_s3_bucket.alb_logs.bucket
+    prefix  = "alb"
+  }
+
   depends_on = [
     aws_route.public_internet,
     aws_route_table_association.public_a,
     aws_route_table_association.public_b,
+    aws_s3_bucket_policy.alb_logs,
+    aws_s3_bucket_server_side_encryption_configuration.alb_logs,
+    aws_s3_bucket_ownership_controls.alb_logs,
+    aws_s3_bucket_lifecycle_configuration.alb_logs,
   ]
 
   tags = { Name = "${var.project_name}-alb" }
