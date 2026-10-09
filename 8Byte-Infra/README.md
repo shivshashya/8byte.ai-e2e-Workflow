@@ -8,7 +8,11 @@ endpoint have also been applied and verified in AWS. The NAT gateway, its
 Elastic IP, and private-A default route have also been applied and verified.
 The user approved the corrected SSH-only EC2 replacement. Cloud-init, SSH,
 Docker, outbound HTTPS, and a Docker Hub image pull/container run passed.
-RDS and ALB remain for subsequent reviewed steps.
+Private RDS, ECR, pipeline IAM/SNS and application database credentials have
+also been applied and verified; see their checkpoints below. The reviewed ALB
+plan has been applied and live listener/security checks passed. Staging serves
+the PetClinic homepage with HTTP 200; production readiness and the complete
+automated deployment/promotion flow remain pending.
 
 ## Files
 
@@ -24,24 +28,25 @@ RDS and ALB remain for subsequent reviewed steps.
 | `security_groups.tf` | Define four security groups and explicit inbound/outbound rules. |
 | `ssh_access.tf` | Define the SSH endpoint in private subnet A. |
 | `ec2.tf` | Verify the pinned AMI and define the shared private application host. |
+| `alb.tf` | Public ALB, separate environment listeners/target groups, EC2 attachments and management-path blocking. |
 | `rds.tf` | Define the private Single-AZ PostgreSQL instance, subnet group and optional-TLS parameter group. |
 | `ecr.tf` | Shared immutable PetClinic image repository, push scanning and image retention. |
 | `iam.tf` | GitHub OIDC deployment/notification roles and EC2 pull-only role/instance profile. |
 | `sns.tf` | Pipeline failure topic and owner-confirmed email subscription. |
 | `secrets.tf` | Application secret containers and scoped EC2 secret-read policy. |
-| `scripts/initialize_databases.sql` | Reviewed PostgreSQL roles, databases and grants; execution pending. |
+| `scripts/initialize_databases.sql` | PostgreSQL roles, databases and grants; initialization completed and verified. |
+| `scripts/initialize_databases.py` | Operator-only credential generation/storage, SSH setup and initialization orchestration. |
+| `scripts/database_host.py` | Internal EC2-side SQL executor and database connectivity/isolation checks. |
 | `scripts/bootstrap_ec2.sh` | First-boot installation of Docker and deployment tools, service startup, and local log rotation. |
 | `variables.tf` | Define configurable region, account, names, CIDRs, Availability Zones, and staging/production host ports. |
-| `outputs.tf` | Expose network IDs, security group IDs, SSH endpoint ID, NAT gateway ID, and NAT public IP after an apply. |
+| `outputs.tf` | Expose infrastructure IDs, pipeline role/topic ARNs, secret ARNs, ALB URLs and target-group ARNs. |
 | `.terraform.lock.hcl` | Generated during initialization; records the selected provider version and checksums. Commit this file. |
 
 All top-level `.tf` files in `8Byte-Infra/` form one Terraform root module.
 File names organize the code for readers; resource references determine
 dependencies. Moving the provider block between files in the same directory
 does not change resource addresses or AWS settings. Keep this single root
-module for the shared infrastructure. Add
-`rds.tf` and `alb.tf` as their implementation steps are approved; reusable
-child modules are optional later.
+module for the shared infrastructure; reusable child modules are optional later.
 
 ## Subnet layout
 
@@ -743,5 +748,92 @@ isolation. PetClinic containers have not yet been connected to these RDS
 credentials, so app startup/restart persistence and host container isolation
 remain pending. Shared EC2 IAM can read both secrets; database isolation does
 not isolate privileged host operators or applications with host credentials.
-ALB is the next infrastructure milestone. This checkpoint supersedes earlier
+The ALB has since been applied and verified below. This checkpoint supersedes earlier
 notes that the application secrets were empty and databases uninitialized.
+
+## ALB apply and verification — 2026-10-09
+
+Formatting and Terraform validation passed. The user approved applying
+`alb.tfplan`: **10 additions, 0 changes, 0 deletions**: one ALB, two target groups, two registrations,
+two listeners, two management-path rules and one staging ALB ingress rule.
+Existing EC2/RDS/IAM resources are unchanged. AWS confirmed both public subnets
+have sufficient free IPs and no existing ALB was present. Reviewed plan values
+match the selected ports, current EC2 instance and HTTP 200 health matcher.
+The apply completed successfully. Live AWS checks confirmed active status,
+intended public subnets/security group, listener-to-target-group mappings,
+current EC2 registrations and malformed-header/deletion-protection settings.
+The post-apply plan exited 0 with no changes. The applied plan is ignored by
+Git and must not be reused; generate a fresh plan for future changes.
+
+One internet-facing IPv4 Application Load Balancer spans public A and public B
+using the existing ALB security group. The user selected separate public HTTP
+ports because no domain is available yet. This replaces the HLD's proposed
+domain-based host routing and avoids application context-path changes.
+
+| Environment | Public URL after apply | EC2 target port |
+| --- | --- | --- |
+| Production | `http://<ALB-DNS>` | 8082 |
+| Staging | `http://<ALB-DNS>:8081` | 8081 |
+
+Actual DNS: `8byte-devops-alb-256496465.us-east-1.elb.amazonaws.com`.
+The staging target is healthy and its public `/` returned HTTP 200 with the
+PetClinic page title. The production target failed health checks
+(`Target.FailedHealthChecks`) and its public `/` returned HTTP 502; application
+readiness remains pending. Both listeners returned HTTP 404 for `/actuator`,
+`/actuator/health` and `/actuator/env`. These checks prove the ALB entry points
+and staging page availability, not the full pipeline or database persistence
+through an application restart.
+
+`alb_listener_ports` configures the public ports; `application_ports` configures
+the EC2 ports independently. The existing production ALB ingress remains TCP
+80. One new ingress rule admits public TCP 8081 to the ALB; EC2 continues to
+accept application traffic only from the ALB security group. No public EC2 IP,
+SSH ingress or PostgreSQL ingress is added.
+
+Each environment has an HTTP listener, target group and registration of the
+same EC2 instance at its own application port. Health checks call
+`/actuator/health` directly on the target port, require HTTP 200, run every
+30 seconds with a 5-second timeout and use thresholds of two successes/failures.
+`alb_health_check_path` is configurable. Health-check success and application
+startup are runtime checks after deployment, not results of Terraform validation.
+
+Each listener returns a fixed 404 for `/actuator` and `/actuator/*`, keeping
+management endpoints off the public entry points. The app currently exposes
+all Actuator endpoints in its development configuration; production deployment
+should restrict exposure with `MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health`
+and keep health details private. ALB health checks bypass listener rules.
+Malformed HTTP header fields are dropped. Access logs and monitoring dashboards
+remain for the monitoring milestone. HTTPS/domain configuration is optional
+later work. Deletion protection defaults to false for assignment cleanup and
+can be changed with `alb_deletion_protection`.
+
+Both target groups share one host; this does not provide application HA or
+zero-downtime container replacement. ALB can route to unhealthy targets when
+all registered targets are unhealthy (fail-open); deployment jobs must explicitly
+check readiness and fail/roll back on failed checks.
+
+Outputs `application_urls`, `alb_dns_name`, `alb_arn` and
+`alb_target_group_arns` provide the public addresses and verification targets.
+Initial checks can run over SSH on EC2 using `http://127.0.0.1:8081/actuator/health`
+and `http://127.0.0.1:8082/actuator/health`. Public app checks should use `/`,
+while public Actuator paths should return 404. The pipeline deployment role has
+not been granted ELB API permissions; use SSH-local checks or request scoped
+permissions if pipeline target-health API polling is needed.
+
+Incremental estimate in us-east-1: $0.0225/ALB-hour plus $0.008/LCU-hour and
+$0.005/public-IPv4-hour. Assuming two ALB IPv4 addresses, the hourly baseline
+is $0.0325, about $2.34 for 72 hours or $23.73 for 730 hours, before LCU usage,
+transfer, taxes and any additional addresses. This excludes existing EC2,
+NAT, RDS and other costs. Rates checked against
+[AWS ELB pricing](https://aws.amazon.com/elasticloadbalancing/pricing/) and
+[AWS public IPv4 pricing](https://aws.amazon.com/vpc/pricing/).
+See [AWS health-check behavior](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/target-group-health-checks.html)
+for the fail-open limitation.
+
+The S3 backend saved the updated state at `s3://8byte.ai/shared/terraform.tfstate`.
+Post-apply metadata confirmed a version ID and AES256 encryption; the temporary
+`shared/terraform.tfstate.tflock` object was absent after lock release. Terraform
+handles state writes through the configured backend automatically. Versioning
+retains prior state object versions; multiple writes can occur during an apply.
+An ordinary plan reads/refreshes state for comparison and does not apply changes
+or persist refreshed resource values as an apply does.

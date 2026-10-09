@@ -37,8 +37,17 @@ resource "aws_vpc_security_group_ingress_rule" "alb_http" {
   description       = "Public HTTP access to the ALB"
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "tcp"
-  from_port         = 80
-  to_port           = 80
+  from_port         = var.alb_listener_ports.production
+  to_port           = var.alb_listener_ports.production
+}
+
+resource "aws_vpc_security_group_ingress_rule" "alb_staging_http" {
+  security_group_id = aws_security_group.alb.id
+  description       = "Public staging HTTP access to the ALB"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "tcp"
+  from_port         = var.alb_listener_ports.staging
+  to_port           = var.alb_listener_ports.staging
 }
 
 # Both sides must permit each ALB-to-EC2 connection.

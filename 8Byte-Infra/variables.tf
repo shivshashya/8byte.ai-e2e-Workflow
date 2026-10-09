@@ -89,6 +89,41 @@ variable "application_ports" {
   }
 }
 
+variable "alb_listener_ports" {
+  description = "Public HTTP listener ports on the shared ALB; independent from the EC2 host ports."
+  type        = map(number)
+  default = {
+    staging    = 8081
+    production = 80
+  }
+
+  validation {
+    condition = (
+      toset(keys(var.alb_listener_ports)) == toset(["staging", "production"]) &&
+      length(distinct(values(var.alb_listener_ports))) == 2 &&
+      alltrue([for port in values(var.alb_listener_ports) : port >= 1 && port <= 65535 && port == floor(port)])
+    )
+    error_message = "alb_listener_ports must contain distinct staging and production TCP ports, each an integer from 1 to 65535."
+  }
+}
+
+variable "alb_health_check_path" {
+  description = "Unauthenticated backend health endpoint returning 200 only when the application is healthy."
+  type        = string
+  default     = "/actuator/health"
+
+  validation {
+    condition     = startswith(var.alb_health_check_path, "/") && !strcontains(var.alb_health_check_path, "?")
+    error_message = "alb_health_check_path must start with / and contain no query string."
+  }
+}
+
+variable "alb_deletion_protection" {
+  description = "Prevent ALB deletion when enabled; disabled by default for assignment cleanup."
+  type        = bool
+  default     = false
+}
+
 variable "ec2_instance_type" {
   description = "x86 T3 instance size for the shared staging and production host."
   type        = string

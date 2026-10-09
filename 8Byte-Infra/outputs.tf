@@ -117,3 +117,27 @@ output "database_secret_arns" {
   description = "Application database secret ARNs by environment; credential values are not managed or exposed by Terraform."
   value       = { for environment, secret in aws_secretsmanager_secret.database : environment => secret.arn }
 }
+
+output "alb_dns_name" {
+  description = "Public DNS name of the shared application load balancer."
+  value       = aws_lb.application.dns_name
+}
+
+output "alb_arn" {
+  description = "Shared ALB ARN for monitoring and operational checks."
+  value       = aws_lb.application.arn
+}
+
+output "application_urls" {
+  description = "HTTP entry points by environment; application deployment and healthy targets are required."
+  value = {
+    for environment, port in var.alb_listener_ports : environment => (
+      port == 80 ? "http://${aws_lb.application.dns_name}" : "http://${aws_lb.application.dns_name}:${port}"
+    )
+  }
+}
+
+output "alb_target_group_arns" {
+  description = "Target-group ARNs by environment for health checks and deployment verification."
+  value       = { for environment, target_group in aws_lb_target_group.application : environment => target_group.arn }
+}
