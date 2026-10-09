@@ -35,6 +35,17 @@ variable "aws_account_id" {
   }
 }
 
+variable "database_secret_suffix" {
+  description = "Optional deployment suffix to avoid names reserved by secrets pending deletion. Keep stable for the lifetime of a deployment."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.database_secret_suffix == "" || can(regex("^[a-zA-Z0-9_-]{1,40}$", var.database_secret_suffix))
+    error_message = "Use an empty suffix or 1-40 letters, digits, underscores or hyphens."
+  }
+}
+
 variable "project_name" {
   description = "Project name used for resource names and tags."
   type        = string

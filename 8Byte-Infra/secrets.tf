@@ -16,7 +16,7 @@ locals {
 resource "aws_secretsmanager_secret" "database" {
   for_each = local.application_databases
 
-  name                    = "${var.project_name}/${each.key}/database"
+  name                    = "${var.project_name}/${each.key}/database${var.database_secret_suffix == "" ? "" : "-${var.database_secret_suffix}"}"
   description             = "PetClinic ${each.key} PostgreSQL connection credentials"
   recovery_window_in_days = 7
 

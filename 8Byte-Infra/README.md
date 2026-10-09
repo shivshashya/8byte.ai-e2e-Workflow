@@ -627,6 +627,13 @@ GetSecretValue on these two secret ARNs, using AWS-managed secret encryption;
 no admin-secret access is added. The shared host role can read both environments.
 Output `database_secret_arns` maps staging and production to their secret ARNs.
 
+When old secret names are reserved during deletion recovery, set
+`database_secret_suffix` to a stable deployment identifier such as `20261009`.
+This creates `8byte-devops/staging/database-20261009` and
+`8byte-devops/production/database-20261009`. Keep the same variable file for
+subsequent plans and applies. Initialization, IAM permissions and deployment
+use the generated ARNs, so they follow the new names automatically.
+
 The post-apply initialization step must generate different random passwords
 and store connection JSON in each matching secret outside Terraform:
 `engine`, `host`, `port`, `dbname`, `username`, `password`.
