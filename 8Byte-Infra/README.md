@@ -837,3 +837,106 @@ handles state writes through the configured backend automatically. Versioning
 retains prior state object versions; multiple writes can occur during an apply.
 An ordinary plan reads/refreshes state for comparison and does not apply changes
 or persist refreshed resource values as an apply does.
+
+## Part 3: metrics and dashboards
+
+Monitoring configuration is prepared locally in `monitoring.tf`; it has not
+been applied or verified on a recreated host. Centralized application, system
+and access logging remains a separate Part 3 milestone. No alarms are created
+in this metrics step.
+
+| Scope | Metrics | Purpose |
+| --- | --- | --- |
+| Shared EC2 host | CPU utilization; memory used; root filesystem used | Identify compute, memory and disk pressure |
+| Each environment through ALB | Requests/minute; target 5xx percentage; average/p95 target response time | Understand demand, server failures and slow requests |
+| Each target group | Minimum healthy / maximum unhealthy targets | Identify unavailable application targets |
+| Shared ALB | ALB-generated 5xx count; target 4xx counts by environment | Distinguish routing/backend failures and client errors |
+| Shared PostgreSQL instance | CPU; connections; free memory/storage; read/write latency | Identify database saturation, capacity and storage delays |
+
+The infrastructure/database dashboard contains six panels. The application
+dashboard contains four panels per environment and one shared error panel.
+Dashboard dimensions use Terraform resource attributes, so they select the
+new instance, target groups and database after recreation. Console links are
+available through `terraform output monitoring_dashboards` after apply.
+
+EC2 basic CPU monitoring uses five-minute averages. Other panels use one-minute
+periods. The host collector publishes only two custom metric series in
+`<project_name>/Host`, aggregated by `InstanceId`; it collects only the root
+filesystem and drops original dimension combinations. Native EC2/ALB/RDS
+metrics supply the remaining measurements.
+
+`RequestCount` uses `Sum` over 60 seconds with both `LoadBalancer` and
+`TargetGroup` dimensions. The target error percentage is
+`100 * target_5xx / requests`; missing 5xx counts are filled with zero only
+when requests exist. No traffic gives no error-rate point, rather than a
+false indication of successful requests. ALB-generated errors are shown
+separately because their metric is shared across environments. Request counts
+exclude requests rejected before target selection. Health checks and requests
+sent directly to EC2 do not represent ALB application traffic.
+
+Target response time measures time from forwarding a request until the target
+starts returning response headers. It does not measure complete browser page
+load time. p95 means 95% of measured responses were at or below that duration;
+small traffic samples may make it noisy. Host and RDS metrics cover shared
+resources; they do not attribute usage to a container, database or database user.
+
+The first-boot script installs the CloudWatch agent from the AL2023 repository.
+Terraform appends the rendered metrics configuration and starts the service
+from that local file. SSM stays disabled. Collection requires no inbound port
+or public management endpoint. The instance policy permits only
+`cloudwatch:PutMetricData` in the project namespace; this action requires
+`Resource = "*"`, constrained by the namespace condition. Existing NAT egress
+provides access to the regional CloudWatch endpoint.
+
+Changes to bootstrap/configuration replace EC2 because
+`user_data_replace_on_change = true`. Review that replacement in a fresh plan,
+then refresh deployment instance IDs, SSH host keys and URLs after recreation.
+Never use historical outputs as current targets.
+
+### Local checks and later runtime verification
+
+Local checks (no AWS credentials or remote backend required):
+
+```bash
+terraform init -backend=false
+terraform fmt -check -recursive
+terraform validate
+terraform test
+bash -n scripts/bootstrap_ec2.sh
+```
+
+The mocked Terraform test checks collector/dashboard dimensions, the IAM
+namespace constraint, bootstrap configuration delivery and per-environment
+request/error/latency wiring. Mocked resources are not deployed to AWS.
+
+After the read-only teardown audit, cost review and approved recreation plan:
+
+1. Verify cloud-init completed and `systemctl is-active amazon-cloudwatch-agent`
+   succeeds through the approved SSH path. Inspect
+   `/opt/aws/amazon-cloudwatch-agent/logs/configuration-validation.log` and
+   `amazon-cloudwatch-agent.log` if collection is missing.
+2. Confirm exactly the two host metrics appear under the project namespace
+   with the new `InstanceId`, and the root filesystem percentage agrees with
+   `df /`. Confirm fresh EC2 and RDS data in the infrastructure dashboard.
+3. After deployment, send ordinary requests through each ALB listener and
+   verify only its target-group request series increases. Compare dashboard
+   counts with the requests generated and inspect average/p95 data.
+4. Confirm healthy target counts for both environments and no unexpected
+   ALB/target errors. Do not inject failures or restart production for this check.
+5. Verify dashboard JSON is accepted by AWS without validation warnings, then
+   run a fresh no-change Terraform plan. Capture runtime evidence separately
+   from local test results.
+
+### Incremental cost budget
+
+Budget approximately $0.60/month for two custom metrics at $0.30 each and
+$6/month for two dashboards at $3 each, or $6.60/month before applicable free
+allowances, API usage, NAT data processing, transfer and taxes. Dashboard and
+metric costs are prorated; instance replacements can briefly create additional
+metric series. Existing EC2, RDS, ALB and NAT charges are separate. Confirm
+current regional rates and account-wide allowances before an apply. Logging
+ingestion, retention, S3 access logs and any future alarms need a separate budget.
+See [CloudWatch pricing](https://aws.amazon.com/cloudwatch/pricing/),
+[agent configuration](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch-Agent-Configuration-File-Details.html),
+[ALB metrics](https://docs.aws.amazon.com/elasticloadbalancing/latest/application/load-balancer-cloudwatch-metrics.html)
+and [RDS metrics](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/rds-metrics.html).

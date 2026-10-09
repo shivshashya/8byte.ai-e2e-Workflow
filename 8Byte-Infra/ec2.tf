@@ -23,7 +23,14 @@ resource "aws_instance" "application" {
   iam_instance_profile        = aws_iam_instance_profile.application.name
 
   # First-boot setup only; changes to this script require a reviewed replacement.
-  user_data                   = file("${path.module}/scripts/bootstrap_ec2.sh")
+  user_data = join("\n", [
+    file("${path.module}/scripts/bootstrap_ec2.sh"),
+    "install -d -m 0755 /opt/aws/amazon-cloudwatch-agent/etc",
+    "echo '${base64encode(local.cloudwatch_agent_config)}' | base64 --decode > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json",
+    "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s",
+    "systemctl enable amazon-cloudwatch-agent",
+    "systemctl is-active amazon-cloudwatch-agent",
+  ])
   user_data_replace_on_change = true
 
   root_block_device {
@@ -50,6 +57,7 @@ resource "aws_instance" "application" {
   # Bootstrap downloads need the NAT route.
   depends_on = [
     aws_route.private_a_internet,
+    aws_iam_role_policy.application_metrics,
   ]
 
   tags = {
