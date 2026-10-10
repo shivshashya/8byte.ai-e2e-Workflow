@@ -128,6 +128,7 @@ jobs:
         env:
           EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
           EC2_SSH_HOST_KEY: ${{ vars.EC2_SSH_HOST_KEY }}
+          DATABASE_SECRET_SUFFIX: ${{ vars.DATABASE_SECRET_SUFFIX }}
         run: |
           ./deploy/deploy-over-ssh.sh staging \
             "${{ vars.ECR_REPOSITORY_URL }}@${{ needs.build-and-push.outputs.digest }}"

@@ -6,12 +6,18 @@
 # Needs: EC2_INSTANCE_ID and AWS_REGION in the environment, plus AWS credentials
 # allowed to open the EC2 Instance Connect tunnel and send a temporary key.
 # Optional: EC2_SSH_HOST_KEY, the host's public SSH key ("ssh-ed25519 AAAA...").
+# Optional: DATABASE_SECRET_SUFFIX, matching Terraform's database_secret_suffix.
 set -euo pipefail
 
 ENVIRONMENT="$1"
 IMAGE="$2"
 : "${EC2_INSTANCE_ID:?EC2_INSTANCE_ID is not set}"
 : "${AWS_REGION:?AWS_REGION is not set}"
+DATABASE_SECRET_SUFFIX="${DATABASE_SECRET_SUFFIX:-}"
+if [[ -n "$DATABASE_SECRET_SUFFIX" && ! "$DATABASE_SECRET_SUFFIX" =~ ^[a-zA-Z0-9_-]{1,40}$ ]]; then
+  echo "Database secret suffix must contain 1-40 letters, digits, underscores or hyphens." >&2
+  exit 1
+fi
 
 # A new key pair for this run only. It is deleted when the script ends.
 KEY_DIR="$(mktemp -d)"
@@ -46,4 +52,4 @@ ssh -T -i "$KEY_DIR/key" \
   -o ServerAliveInterval=15 \
   -o ProxyCommand="aws ec2-instance-connect open-tunnel --region $AWS_REGION --instance-id $EC2_INSTANCE_ID" \
   "ec2-user@$EC2_INSTANCE_ID" \
-  "bash -s -- '$ENVIRONMENT' '$IMAGE' '$AWS_REGION'" <"$(dirname "$0")/deploy.sh"
+  "bash -s -- '$ENVIRONMENT' '$IMAGE' '$AWS_REGION' '$DATABASE_SECRET_SUFFIX'" <"$(dirname "$0")/deploy.sh"

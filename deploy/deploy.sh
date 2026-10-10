@@ -2,7 +2,7 @@
 # Runs ON THE EC2 HOST. Replaces one environment's PetClinic container with
 # the given image, and puts the previous image back if the new one is unhealthy.
 #
-# Usage: deploy.sh <staging|production> <image> <aws-region>
+# Usage: deploy.sh <staging|production> <image> <aws-region> [database-secret-suffix]
 #
 # The host's own IAM role pulls the image and reads the database secret, so
 # no credentials travel from the pipeline to the host.
@@ -55,6 +55,12 @@ main() {
   ENVIRONMENT="$1"
   IMAGE="$2"
   REGION="$3"
+  DATABASE_SECRET_SUFFIX="${4:-}"
+
+  if [[ -n "$DATABASE_SECRET_SUFFIX" && ! "$DATABASE_SECRET_SUFFIX" =~ ^[a-zA-Z0-9_-]{1,40}$ ]]; then
+    echo "Database secret suffix must contain 1-40 letters, digits, underscores or hyphens." >&2
+    exit 1
+  fi
 
   case "$ENVIRONMENT" in
     staging) PORT=8081 ;;
@@ -64,6 +70,11 @@ main() {
       exit 1
       ;;
   esac
+
+  DATABASE_SECRET_ID="$PROJECT/$ENVIRONMENT/database"
+  if [ -n "$DATABASE_SECRET_SUFFIX" ]; then
+    DATABASE_SECRET_ID="$DATABASE_SECRET_ID-$DATABASE_SECRET_SUFFIX"
+  fi
 
   CONTAINER="petclinic-$ENVIRONMENT"
   NETWORK="$ENVIRONMENT-net"
@@ -93,7 +104,7 @@ main() {
   # health is switched on, without internal details.
   ENV_FILE="$(mktemp)"
   aws secretsmanager get-secret-value --region "$REGION" \
-    --secret-id "$PROJECT/$ENVIRONMENT/database" --query SecretString --output text |
+    --secret-id "$DATABASE_SECRET_ID" --query SecretString --output text |
     jq -r '"SPRING_PROFILES_ACTIVE=postgres",
            "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=health",
            "MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS=never",

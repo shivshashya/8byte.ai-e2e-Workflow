@@ -643,8 +643,15 @@ When old secret names are reserved during deletion recovery, set
 `database_secret_suffix` to a stable deployment identifier such as `20261009`.
 This creates `8byte-devops/staging/database-20261009` and
 `8byte-devops/production/database-20261009`. Keep the same variable file for
-subsequent plans and applies. Initialization, IAM permissions and deployment
-use the generated ARNs, so they follow the new names automatically.
+subsequent plans and applies. Initialization and IAM permissions use the
+generated ARNs. For pipeline deployments, set the GitHub repository variable
+`DATABASE_SECRET_SUFFIX` to the same value as Terraform's
+`database_secret_suffix`. Both workflows pass this value over SSH so deployment
+reads the matching secret name. For an operator deployment, export
+`DATABASE_SECRET_SUFFIX` before running `deploy/deploy-over-ssh.sh`.
+An empty suffix retains the original secret names. Choose a new suffix if the
+previous deployment's names are still reserved during deletion recovery; keep
+the chosen value unchanged for subsequent plans, applies and deployments.
 
 The post-apply initialization step must generate different random passwords
 and store connection JSON in each matching secret outside Terraform:
