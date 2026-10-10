@@ -3,7 +3,6 @@
 FROM eclipse-temurin:17-jdk AS build
 WORKDIR /workspace
 
-
 # Copy only the build definition first. Docker caches this layer, so the
 # dependency download is repeated only when pom.xml changes, not on every
 # source code change.
