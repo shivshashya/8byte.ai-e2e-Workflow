@@ -17,16 +17,16 @@ data "aws_ami" "application" {
 resource "aws_instance" "application" {
   ami                         = data.aws_ami.application.id
   instance_type               = var.ec2_instance_type
-  subnet_id                   = aws_subnet.private_a.id
-  vpc_security_group_ids      = [aws_security_group.ec2.id]
+  subnet_id                   = var.subnet_id
+  vpc_security_group_ids      = [var.security_group_id]
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.application.name
 
   # First-boot setup only; changes to this script require a reviewed replacement.
   user_data = join("\n", [
-    templatefile("${path.module}/scripts/bootstrap_ec2.sh", { docker_logging_config = local.docker_logging_config }),
+    templatefile("${path.module}/templates/bootstrap_ec2.sh.tftpl", { docker_logging_config = var.docker_logging_config }),
     "install -d -m 0755 /opt/aws/amazon-cloudwatch-agent/etc",
-    "echo '${base64encode(local.cloudwatch_agent_config)}' | base64 --decode > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json",
+    "echo '${base64encode(var.cloudwatch_agent_config)}' | base64 --decode > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json",
     "/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json -s",
     "systemctl enable amazon-cloudwatch-agent",
     "systemctl is-active amazon-cloudwatch-agent",
@@ -56,7 +56,6 @@ resource "aws_instance" "application" {
 
   # Bootstrap downloads need the NAT route.
   depends_on = [
-    aws_route.private_a_internet,
     aws_iam_role_policy.application_metrics,
     aws_iam_role_policy.application_logs,
   ]

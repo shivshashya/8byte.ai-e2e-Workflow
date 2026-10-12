@@ -5,8 +5,8 @@ resource "aws_lb" "application" {
   internal           = false
   load_balancer_type = "application"
   ip_address_type    = "ipv4"
-  security_groups    = [aws_security_group.alb.id]
-  subnets            = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+  security_groups    = [var.security_group_id]
+  subnets            = var.public_subnet_ids
 
   drop_invalid_header_fields = true
   enable_deletion_protection = var.alb_deletion_protection
@@ -14,19 +14,9 @@ resource "aws_lb" "application" {
 
   access_logs {
     enabled = true
-    bucket  = aws_s3_bucket.alb_logs.bucket
+    bucket  = var.access_log_bucket_name
     prefix  = "alb"
   }
-
-  depends_on = [
-    aws_route.public_internet,
-    aws_route_table_association.public_a,
-    aws_route_table_association.public_b,
-    aws_s3_bucket_policy.alb_logs,
-    aws_s3_bucket_server_side_encryption_configuration.alb_logs,
-    aws_s3_bucket_ownership_controls.alb_logs,
-    aws_s3_bucket_lifecycle_configuration.alb_logs,
-  ]
 
   tags = { Name = "${var.project_name}-alb" }
 }
@@ -38,7 +28,7 @@ resource "aws_lb_target_group" "application" {
   target_type = "instance"
   port        = each.value
   protocol    = "HTTP"
-  vpc_id      = aws_vpc.vpc_8byte_ai.id
+  vpc_id      = var.vpc_id
 
   # Allow in-flight requests to finish when a target is deregistered.
   # Container replacement on the same registered port still needs deployment
@@ -67,7 +57,7 @@ resource "aws_lb_target_group_attachment" "application" {
   for_each = var.application_ports
 
   target_group_arn = aws_lb_target_group.application[each.key].arn
-  target_id        = aws_instance.application.id
+  target_id        = var.ec2_instance_id
   port             = each.value
 }
 
