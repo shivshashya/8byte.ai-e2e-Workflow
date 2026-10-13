@@ -1,7 +1,7 @@
 # Both private subnets are required for the subnet group; the DB is Single-AZ.
 resource "aws_db_subnet_group" "application" {
   name       = "rds-${var.project_name}"
-  subnet_ids = [aws_subnet.private_a.id, aws_subnet.private_b.id]
+  subnet_ids = var.private_subnet_ids
 
   tags = { Name = "${var.project_name}-rds-subnets" }
 }
@@ -32,8 +32,8 @@ resource "aws_db_instance" "application" {
 
   db_subnet_group_name   = aws_db_subnet_group.application.name
   parameter_group_name   = aws_db_parameter_group.application.name
-  vpc_security_group_ids = [aws_security_group.rds.id]
-  availability_zone      = var.availability_zones[0]
+  vpc_security_group_ids = [var.security_group_id]
+  availability_zone      = var.availability_zone
   multi_az               = false
   publicly_accessible    = false
   port                   = 5432

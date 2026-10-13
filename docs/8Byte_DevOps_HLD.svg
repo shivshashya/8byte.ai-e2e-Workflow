@@ -1,0 +1,135 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1270" viewBox="0 0 1800 1270" role="img" aria-labelledby="title desc">
+<title id="title">8Byte.ai DevOps Assignment - High-Level Architecture</title>
+<desc id="desc">Spring PetClinic on one private EC2 host with staging and production containers, one private Single-AZ PostgreSQL RDS instance with separate databases, an HTTP ALB across two public subnets, SSH through an Instance Connect Endpoint, and GitHub Actions release automation. Managed services include ECR, Secrets Manager, CloudWatch, S3 and SNS. This describes repository configuration; the demo infrastructure was removed.</desc>
+<rect x="0" y="0" width="1800" height="1270" rx="0" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="1.5"/>
+<text x="44" y="57" fill="#182A3E" font-family="Arial, sans-serif" font-size="34" font-weight="700">8Byte.ai | DevOps Assignment</text>
+<text x="44" y="91" fill="#4D6073" font-family="Arial, sans-serif" font-size="19" font-weight="400">High-level architecture | Spring PetClinic | One shared EC2 and one shared RDS</text>
+<rect x="942" y="118" width="268" height="59" rx="12" fill="#FFFFFF" stroke="#1B5D91" stroke-width="1.5"/>
+<text x="960" y="149" fill="#1B5D91" font-family="Arial, sans-serif" font-size="20" font-weight="700">Users / reviewers</text>
+<rect x="44" y="210" width="1190" height="740" rx="18" fill="#F8FAFC" stroke="#1B5D91" stroke-width="1.5"/>
+<text x="68" y="241" fill="#1B5D91" font-family="Arial, sans-serif" font-size="23" font-weight="700">AWS us-east-1 | VPC 10.0.0.0/16</text>
+<text x="824" y="241" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">Internet gateway attached to VPC</text>
+<rect x="68" y="262" width="558" height="159" rx="12" fill="#EDF4FA" stroke="#D3DDE6" stroke-width="1.5"/>
+<rect x="638" y="262" width="572" height="159" rx="12" fill="#EDF4FA" stroke="#D3DDE6" stroke-width="1.5"/>
+<text x="86" y="288" fill="#1B5D91" font-family="Arial, sans-serif" font-size="18" font-weight="700">Public A | 10.0.0.0/24 | AZ-A</text>
+<text x="656" y="288" fill="#1B5D91" font-family="Arial, sans-serif" font-size="18" font-weight="700">Public B | 10.0.1.0/24 | AZ-B</text>
+<rect x="88" y="314" width="296" height="83" rx="12" fill="#FFFFFF" stroke="#936018" stroke-width="1.5"/>
+<text x="106" y="345" fill="#936018" font-family="Arial, sans-serif" font-size="21" font-weight="700">One NAT gateway</text>
+<text x="106" y="375" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Private A outbound via IGW</text>
+<rect x="444" y="306" width="744" height="97" rx="12" fill="#FFFFFF" stroke="#1B5D91" stroke-width="1.5"/>
+<text x="462" y="337" fill="#1B5D91" font-family="Arial, sans-serif" font-size="21" font-weight="700">Public Application Load Balancer</text>
+<text x="462" y="367" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Across public A + B; two target groups on the same EC2</text>
+<text x="462" y="390" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Staging HTTP 8081 -&gt; host 8081 | Production HTTP 80 -&gt; host 8082</text>
+<rect x="68" y="452" width="840" height="474" rx="12" fill="#F1F8F5" stroke="#D3DDE6" stroke-width="1.5"/>
+<text x="86" y="480" fill="#176E5D" font-family="Arial, sans-serif" font-size="18" font-weight="700">Private A | 10.0.10.0/24 | AZ-A</text>
+<rect x="926" y="452" width="284" height="160" rx="12" fill="#F1F8F5" stroke="#D3DDE6" stroke-width="1.5"/>
+<text x="944" y="480" fill="#176E5D" font-family="Arial, sans-serif" font-size="18" font-weight="700">Private B | AZ-B</text>
+<text x="944" y="509" fill="#4D6073" font-family="Arial, sans-serif" font-size="18" font-weight="400">10.0.11.0/24</text>
+<text x="944" y="538" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">RDS subnet group: A + B</text>
+<text x="944" y="566" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Local VPC routes only</text>
+<text x="944" y="592" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">No second DB instance</text>
+<polyline points="750,403 750,507" fill="none" stroke="#1B5D91" stroke-width="2.5"/>
+<polygon points="750.00,507.00 754.60,497.00 745.40,497.00" fill="#1B5D91"/>
+<text x="768" y="441" fill="#1B5D91" font-family="Arial, sans-serif" font-size="16" font-weight="400">ALB -&gt; application ports</text>
+<rect x="88" y="507" width="798" height="179" rx="12" fill="#FFFFFF" stroke="#176E5D" stroke-width="1.5"/>
+<text x="108" y="538" fill="#176E5D" font-family="Arial, sans-serif" font-size="21" font-weight="700">Shared EC2 | t3.medium | Docker | No public IP</text>
+<rect x="110" y="560" width="353" height="106" rx="12" fill="#F4FAF7" stroke="#176E5D" stroke-width="1.5"/>
+<text x="128" y="591" fill="#176E5D" font-family="Arial, sans-serif" font-size="21" font-weight="700">Staging</text>
+<text x="128" y="621" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">PetClinic | host port 8081</text>
+<text x="128" y="644" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">staging-net | separate credentials</text>
+<rect x="487" y="560" width="377" height="106" rx="12" fill="#F4FAF7" stroke="#176E5D" stroke-width="1.5"/>
+<text x="505" y="591" fill="#176E5D" font-family="Arial, sans-serif" font-size="21" font-weight="700">Production</text>
+<text x="505" y="621" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">PetClinic | host port 8082</text>
+<text x="505" y="644" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">production-net | separate credentials</text>
+<polyline points="88,548 55,548 55,407 236,407 236,397" fill="none" stroke="#936018" stroke-width="2" stroke-dasharray="6 5"/>
+<polygon points="236.00,397.00 231.40,407.00 240.60,407.00" fill="#936018"/>
+<text x="108" y="732" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Operator / workflow access</text>
+<text x="108" y="757" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">SSH through the private endpoint</text>
+<rect x="644" y="706" width="242" height="53" rx="12" fill="#FFFFFF" stroke="#6A4AA1" stroke-width="1.5"/>
+<text x="660" y="729" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="17" font-weight="700">EC2 Instance Connect</text>
+<text x="660" y="749" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">Endpoint | SSH TCP 22</text>
+<polyline points="866,706 866,686" fill="none" stroke="#6A4AA1" stroke-width="2" stroke-dasharray="5 4"/>
+<polygon points="866.00,686.00 861.40,696.00 870.60,696.00" fill="#6A4AA1"/>
+<polyline points="441,686 441,782" fill="none" stroke="#6A4AA1" stroke-width="2.5"/>
+<polygon points="441.00,782.00 445.60,772.00 436.40,772.00" fill="#6A4AA1"/>
+<text x="458" y="735" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="17" font-weight="400">PostgreSQL TCP 5432</text>
+<rect x="88" y="782" width="798" height="124" rx="12" fill="#FFFFFF" stroke="#6A4AA1" stroke-width="1.5"/>
+<text x="108" y="813" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="20" font-weight="700">Shared private PostgreSQL RDS | Single-AZ | db.t3.small</text>
+<rect x="110" y="831" width="353" height="56" rx="8" fill="#F7F4FA" stroke="#D3DDE6" stroke-width="1.5"/>
+<text x="126" y="854" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="18" font-weight="700">app_staging</text>
+<text x="126" y="877" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">staging_user</text>
+<rect x="487" y="831" width="377" height="56" rx="8" fill="#F7F4FA" stroke="#D3DDE6" stroke-width="1.5"/>
+<text x="503" y="854" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="18" font-weight="700">app_production</text>
+<text x="503" y="877" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">production_user</text>
+<rect x="926" y="635" width="284" height="291" rx="12" fill="#FFFFFF" stroke="#D3DDE6" stroke-width="1.5"/>
+<text x="944" y="666" fill="#182A3E" font-family="Arial, sans-serif" font-size="20" font-weight="700">Access controls</text>
+<text x="944" y="698" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">Application ports: ALB SG only</text>
+<text x="944" y="724" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">SSH: endpoint SG only</text>
+<text x="944" y="750" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">RDS: EC2 SG only</text>
+<text x="944" y="776" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">Restricted DB users</text>
+<text x="944" y="823" fill="#182A3E" font-family="Arial, sans-serif" font-size="20" font-weight="700">Backups and limits</text>
+<text x="944" y="854" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">7-day RDS backups</text>
+<text x="944" y="880" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">Shared capacity and failures</text>
+<text x="944" y="906" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">No application high availability</text>
+<rect x="1260" y="210" width="496" height="740" rx="18" fill="#F8FAFC" stroke="#D3DDE6" stroke-width="1.5"/>
+<text x="1284" y="245" fill="#182A3E" font-family="Arial, sans-serif" font-size="23" font-weight="700">AWS supporting services</text>
+<text x="1284" y="272" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Outside application subnets</text>
+<rect x="1284" y="291" width="448" height="104" rx="12" fill="#FFFFFF" stroke="#936018" stroke-width="1.5"/>
+<text x="1302" y="322" fill="#936018" font-family="Arial, sans-serif" font-size="21" font-weight="700">ECR</text>
+<text x="1302" y="352" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Workflow pushes; EC2 pulls the image</text>
+<text x="1302" y="375" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Immutable tags; deployments use a digest</text>
+<rect x="1284" y="414" width="448" height="105" rx="12" fill="#FFFFFF" stroke="#6A4AA1" stroke-width="1.5"/>
+<text x="1302" y="445" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="21" font-weight="700">Secrets Manager</text>
+<text x="1302" y="475" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">EC2 reads staging / production DB secrets</text>
+<text x="1302" y="498" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">RDS manages the separate admin secret</text>
+<rect x="1284" y="538" width="448" height="150" rx="12" fill="#FFFFFF" stroke="#176E5D" stroke-width="1.5"/>
+<text x="1302" y="569" fill="#176E5D" font-family="Arial, sans-serif" font-size="21" font-weight="700">CloudWatch</text>
+<text x="1302" y="599" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">EC2: CPU, memory and disk; RDS metrics</text>
+<text x="1302" y="622" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">ALB: requests, errors and latency</text>
+<text x="1302" y="645" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Application and system logs from EC2</text>
+<text x="1302" y="668" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Two dashboards: infrastructure and application</text>
+<rect x="1284" y="705" width="448" height="100" rx="12" fill="#FFFFFF" stroke="#1B5D91" stroke-width="1.5"/>
+<text x="1302" y="736" fill="#1B5D91" font-family="Arial, sans-serif" font-size="21" font-weight="700">S3 | two separate buckets</text>
+<text x="1302" y="766" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">ALB sends access logs to the log bucket</text>
+<text x="1302" y="789" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Terraform state uses native S3 locking</text>
+<rect x="1284" y="824" width="448" height="101" rx="12" fill="#FFFFFF" stroke="#936018" stroke-width="1.5"/>
+<text x="1302" y="855" fill="#936018" font-family="Arial, sans-serif" font-size="21" font-weight="700">SNS failure notifications</text>
+<text x="1302" y="885" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Workflow failure -&gt; SNS -&gt; email</text>
+<text x="1302" y="908" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Owner confirms the email subscription</text>
+<rect x="44" y="976" width="1712" height="196" rx="18" fill="#F7F5FA" stroke="#D3DDE6" stroke-width="1.5"/>
+<text x="66" y="1010" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="22" font-weight="700">Release flow | GitHub Actions uses OIDC for temporary AWS credentials</text>
+<rect x="66" y="1040" width="260" height="108" rx="12" fill="#FFFFFF" stroke="#6A4AA1" stroke-width="1.5"/>
+<text x="84" y="1071" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="21" font-weight="700">Pull requests</text>
+<text x="84" y="1101" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Unit + integration tests</text>
+<text x="84" y="1124" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Dependency scan</text>
+<rect x="355" y="1040" width="300" height="108" rx="12" fill="#FFFFFF" stroke="#6A4AA1" stroke-width="1.5"/>
+<text x="373" y="1071" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="21" font-weight="700">Merge to main</text>
+<text x="373" y="1101" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Build + container scan</text>
+<text x="373" y="1124" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Push image to ECR</text>
+<rect x="684" y="1040" width="300" height="108" rx="12" fill="#FFFFFF" stroke="#6A4AA1" stroke-width="1.5"/>
+<text x="702" y="1071" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="21" font-weight="700">Staging</text>
+<text x="702" y="1101" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">SSH deploy through endpoint</text>
+<text x="702" y="1124" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Health check</text>
+<rect x="1013" y="1040" width="270" height="108" rx="12" fill="#FFFFFF" stroke="#6A4AA1" stroke-width="1.5"/>
+<text x="1031" y="1071" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="21" font-weight="700">Manual trigger</text>
+<text x="1031" y="1101" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Select successful staging run</text>
+<text x="1031" y="1124" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Approve promotion</text>
+<rect x="1312" y="1040" width="422" height="108" rx="12" fill="#FFFFFF" stroke="#6A4AA1" stroke-width="1.5"/>
+<text x="1330" y="1071" fill="#6A4AA1" font-family="Arial, sans-serif" font-size="21" font-weight="700">Production</text>
+<text x="1330" y="1101" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Promote the same image digest</text>
+<text x="1330" y="1124" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">SSH deployment + health check</text>
+<polyline points="326,1094 355,1094" fill="none" stroke="#6A4AA1" stroke-width="2"/>
+<polygon points="355.00,1094.00 345.00,1089.40 345.00,1098.60" fill="#6A4AA1"/>
+<polyline points="655,1094 684,1094" fill="none" stroke="#6A4AA1" stroke-width="2"/>
+<polygon points="684.00,1094.00 674.00,1089.40 674.00,1098.60" fill="#6A4AA1"/>
+<polyline points="984,1094 1013,1094" fill="none" stroke="#6A4AA1" stroke-width="2"/>
+<polygon points="1013.00,1094.00 1003.00,1089.40 1003.00,1098.60" fill="#6A4AA1"/>
+<polyline points="1283,1094 1312,1094" fill="none" stroke="#6A4AA1" stroke-width="2"/>
+<polygon points="1312.00,1094.00 1302.00,1089.40 1302.00,1098.60" fill="#6A4AA1"/>
+<text x="44" y="1203" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Infrastructure provisioning: local Terraform validate -&gt; plan -&gt; reviewed apply. No automated Terraform deployment workflow.</text>
+<text x="44" y="1230" fill="#4D6073" font-family="Arial, sans-serif" font-size="17" font-weight="400">Staging and production have logical separation; their EC2 host, IAM role and RDS engine remain shared.</text>
+<text x="44" y="1256" fill="#4D6073" font-family="Arial, sans-serif" font-size="16" font-weight="400">Architecture from repository configuration. Demo infrastructure was removed after verification.</text>
+<polyline points="1076,177 1076,194 1220,194 1220,355 1188,355" fill="none" stroke="#1B5D91" stroke-width="2.5"/>
+<polygon points="1188.00,355.00 1198.00,359.60 1198.00,350.40" fill="#1B5D91"/>
+<text x="1240" y="199" fill="#1B5D91" font-family="Arial, sans-serif" font-size="16" font-weight="700">HTTP</text>
+</svg>
