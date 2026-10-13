@@ -1,7 +1,7 @@
 # One shared AWS stack serves both staging and production containers.
 # Copy to shared.tfvars; actual .tfvars files are ignored by Git.
 aws_region         = "us-east-1"
-aws_account_id     = "239799717936"
+aws_account_id     = ""
 project_name       = "8byte-devops"
 vpc_name           = "8byte-ai-vpc"
 vpc_cidr           = "10.0.0.0/16"
@@ -14,7 +14,7 @@ alb_listener_ports   = { staging = 8081, production = 80 }
 
 # Choose an unused value before recreating secrets, then keep it stable.
 # Set the GitHub Actions variable DATABASE_SECRET_SUFFIX to the same value.
-database_secret_suffix = "rebuild-01"
+database_secret_suffix = "build-01"
 
 # Choose an unused final snapshot identifier for each new database deployment.
 rds_final_snapshot_identifier = "petclinic-8byte-devops-final-rebuild-01"
@@ -23,3 +23,4 @@ rds_require_tls               = false
 
 cloudwatch_log_retention_days = 14
 alb_access_log_retention_days = 30
+pipeline_alert_email = "your-email@example.com"

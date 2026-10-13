@@ -26,8 +26,6 @@ This restructure changes local code organization only. It does not provision
 AWS resources, change credentials, send notifications or deploy an application.
 A fresh deployment needs a backend bucket, an unused secret suffix and an
 unused final-snapshot identifier. Review an AWS plan before applying.
-Historical implementation evidence is preserved in
-[docs/implementation-history.md](docs/implementation-history.md).
 
 ## Folder structure
 
@@ -53,9 +51,7 @@ Historical implementation evidence is preserved in
 │   ├── pipeline/              # GitHub OIDC/IAM and SNS failure notifications
 │   └── monitoring/            # Infrastructure/database and app dashboards
 ├── scripts/                   # Operator-only database setup and verification
-├── tests/                     # Mocked integration contracts; no AWS access
-└── docs/
-    └── implementation-history.md
+└── tests/                     # Mocked integration contracts; no AWS access
 ```
 
 Each module contains `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf` and

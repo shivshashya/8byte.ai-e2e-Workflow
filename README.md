@@ -4,8 +4,6 @@ This project shows how to provision AWS infrastructure, test and deploy an appli
 
 The setup uses Terraform, GitHub Actions, Docker, EC2, PostgreSQL RDS, ECR, CloudWatch, S3 and Secrets Manager. Staging and production share one EC2 instance and one RDS instance, with separate containers, networks, databases and credentials.
 
-**Current status, 11 October 2026:** the deployed project infrastructure has been removed after the demonstration work. The ALB log bucket, Terraform state bucket and final RDS snapshot were also deleted. Eight application secrets are still scheduled for deletion. Old instance IDs, URLs and SSH host keys should not be reused. This README explains how to create a fresh setup; the commands below have not been run as part of writing this document.
-
 ## Contents
 
 - [Architecture and decisions](#architecture-and-decisions)
@@ -147,7 +145,6 @@ aws s3api put-public-access-block --bucket "$task_state_bucket" \
 
 These creation commands are for `us-east-1`. If the bucket name is taken, choose another unique name before running them. The operator needs access to the bucket and state object, plus read/write/delete access to the lock object.
 
-The state key is `shared/terraform.tfstate`. Native S3 locking uses `shared/terraform.tfstate.tflock`, which is removed when the lock is released. Versioning keeps previous state versions for recovery. See the [Terraform S3 backend documentation](https://developer.hashicorp.com/terraform/language/backend/s3).
 
 ### 4. Plan and apply
 
@@ -183,7 +180,7 @@ aws ec2-instance-connect ssh --instance-id "$task_instance_id" \
   --os-user ec2-user --region us-east-1
 ```
 
-The [AWS CLI SSH command](https://docs.aws.amazon.com/cli/latest/reference/ec2-instance-connect/ssh.html) reaches EC2 through the endpoint. For the first connection, verify the host fingerprint through the EC2 console before accepting it. In the server shell, read the public host key:
+The AWS CLI SSH command reaches EC2 through the endpoint. For the first connection, verify the host fingerprint through the EC2 console before accepting it. In the server shell, read the public host key:
 
 ```bash
 sudo cat /etc/ssh/ssh_host_ed25519_key.pub
@@ -409,4 +406,4 @@ A controlled unhealthy-release rollback test, a database restore exercise and fr
 
 For a production platform, the next changes would be HTTPS, stronger environment separation, multiple application hosts, Multi-AZ RDS, a separate reviewer approval gate and monitoring alarms. Those changes are outside this assignment setup and are not implemented here.
 
-Spring PetClinic is an existing [Spring project](https://github.com/spring-projects/spring-petclinic), distributed under the [Apache 2.0 licence](app/LICENSE.txt).
+Spring PetClinic is an existing [Spring project](https://github.com/spring-projects/spring-petclinic).

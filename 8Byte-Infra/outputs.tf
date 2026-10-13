@@ -8,44 +8,9 @@ output "vpc_cidr" {
   value       = module.network.vpc_cidr
 }
 
-output "public_subnet_ids" {
-  description = "IDs of the two subnets intended for the internet-facing ALB."
-  value       = module.network.public_subnet_ids
-}
-
-output "private_subnet_ids" {
-  description = "IDs of the private subnets intended for EC2 and the RDS subnet group."
-  value       = module.network.private_subnet_ids
-}
-
-output "internet_gateway_id" {
-  description = "ID of the internet gateway attached to the VPC."
-  value       = module.network.internet_gateway_id
-}
-
-output "route_table_ids" {
-  description = "IDs of the public route table and each private subnet's route table."
-  value       = module.network.route_table_ids
-}
-
-output "security_group_ids" {
-  description = "Security groups for ALB, application EC2, PostgreSQL, and the SSH endpoint."
-  value       = module.network.security_group_ids
-}
-
 output "ssh_endpoint_id" {
   description = "EC2 Instance Connect Endpoint ID for SSH to the planned private EC2 host."
   value       = module.network.ssh_endpoint_id
-}
-
-output "nat_gateway_id" {
-  description = "ID of the NAT gateway providing outbound IPv4 access for private subnet A."
-  value       = module.network.nat_gateway_id
-}
-
-output "nat_public_ip" {
-  description = "Public IPv4 address used by outbound connections through the NAT gateway."
-  value       = module.network.nat_public_ip
 }
 
 output "ec2_instance_id" {
@@ -78,6 +43,11 @@ output "rds_admin_secret_arn" {
   value       = module.database.rds_admin_secret_arn
 }
 
+output "database_secret_arns" {
+  description = "Application database secret ARNs by environment; credential values are not managed or exposed by Terraform."
+  value       = module.database.database_secret_arns
+}
+
 output "ecr_repository_url" {
   description = "PetClinic image repository URL shared by staging and production."
   value       = module.registry.repository_url
@@ -88,19 +58,14 @@ output "github_actions_role_arn" {
   value       = module.pipeline.github_actions_role_arn
 }
 
-output "pipeline_failure_topic_arn" {
-  description = "SNS topic ARN for GitHub pipeline failure messages."
-  value       = module.pipeline.pipeline_failure_topic_arn
-}
-
 output "github_notifications_role_arn" {
   description = "Publish-only GitHub OIDC role for main-branch and pull-request failure notifications."
   value       = module.pipeline.github_notifications_role_arn
 }
 
-output "database_secret_arns" {
-  description = "Application database secret ARNs by environment; credential values are not managed or exposed by Terraform."
-  value       = module.database.database_secret_arns
+output "pipeline_failure_topic_arn" {
+  description = "SNS topic ARN for GitHub pipeline failure messages."
+  value       = module.pipeline.pipeline_failure_topic_arn
 }
 
 output "alb_dns_name" {
@@ -116,11 +81,6 @@ output "alb_arn" {
 output "application_urls" {
   description = "HTTP entry points by environment; application deployment and healthy targets are required."
   value       = module.load_balancer.application_urls
-}
-
-output "alb_target_group_arns" {
-  description = "Target-group ARNs by environment for health checks and deployment verification."
-  value       = module.load_balancer.target_group_arns
 }
 
 output "logging_destinations" {
